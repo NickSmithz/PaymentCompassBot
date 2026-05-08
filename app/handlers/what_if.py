@@ -1,5 +1,6 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from app.texts import BTN_WHAT_IF_BUY
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -19,7 +20,7 @@ router = Router()
 
 
 @router.message(Command("what_if_buy"))
-@router.message(F.text == "🛒 Что если купить?")
+@router.message(F.text == BTN_WHAT_IF_BUY)
 async def what_if_start(message: Message, state: FSMContext) -> None:
     await state.set_state(WhatIfPurchaseStates.amount)
     await message.answer("Какую сумму планируешь потратить?\nНапиши сумму в рублях, например: 5000")

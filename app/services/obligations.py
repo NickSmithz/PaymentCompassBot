@@ -2,9 +2,17 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.calculations import calculate_reserved_adjustment
 from app.repositories import obligations as obligations_repo
 from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
+
+
+class ReservedAmountValidationError(ValueError):
+    def __init__(self, code: str, max_amount: int | None = None):
+        super().__init__(code)
+        self.code = code
+        self.max_amount = max_amount
 
 
 async def create_obligation(session: AsyncSession, user_id: int, data: dict):
@@ -53,7 +61,7 @@ async def get_upcoming_obligations_summary(session: AsyncSession, user_id: int, 
     obligations = await obligations_repo.list_active_by_user(session, user_id)
     items = []
     for obligation in obligations:
-        reserved = await reserves_repo.sum_reserved_for_obligation(session, obligation.id)
+        reserved = await reserves_repo.sum_reserved_for_obligation(session, user_id, obligation.id)
         paid = await payments_repo.sum_paid_for_obligation_period(session, obligation.id, None, obligation.next_payment_date)
         remaining = max(0, obligation.monthly_payment_amount - reserved - paid)
         items.append(
@@ -104,3 +112,71 @@ async def update_obligation_field(session: AsyncSession, user_id: int, obligatio
 
 async def update_obligation_status(session: AsyncSession, user_id: int, obligation_id: int, is_active: bool):
     return await update_obligation_field(session, user_id, obligation_id, "status", is_active)
+
+
+async def get_obligation_reserved_amount_info(session: AsyncSession, user_id: int, obligation_id: int):
+    obligation = await obligations_repo.get_by_id(session, user_id, obligation_id)
+    if obligation is None or not obligation.is_active:
+        return None
+    current_reserved = await reserves_repo.sum_reserved_for_obligation(session, user_id, obligation.id)
+    return {"obligation": obligation, "current_reserved_amount": current_reserved}
+
+
+async def update_obligation_reserved_amount(
+    session: AsyncSession,
+    user_id: int,
+    obligation_id: int,
+    new_reserved_amount: int,
+    today: date,
+):
+    obligation = await obligations_repo.get_by_id(session, user_id, obligation_id)
+    if obligation is None or not obligation.is_active:
+        return None
+    if new_reserved_amount < 0:
+        raise ReservedAmountValidationError("negative")
+    if new_reserved_amount > obligation.monthly_payment_amount:
+        raise ReservedAmountValidationError("too_large", max_amount=obligation.monthly_payment_amount)
+
+    current_reserved = await reserves_repo.sum_reserved_for_obligation(session, user_id, obligation.id)
+    adjustment = calculate_reserved_adjustment(current_reserved, new_reserved_amount)
+    transaction_type = adjustment["transaction_type"]
+    amount = adjustment["amount"]
+    if transaction_type == "manual_adjustment":
+        await reserves_repo.create(
+            session,
+            user_id=user_id,
+            obligation_id=obligation.id,
+            income_id=None,
+            amount=amount,
+            transaction_type="manual_adjustment",
+            comment="Ручное увеличение суммы «Уже отложено»",
+        )
+    elif transaction_type == "release":
+        await reserves_repo.create(
+            session,
+            user_id=user_id,
+            obligation_id=obligation.id,
+            income_id=None,
+            amount=amount,
+            transaction_type="release",
+            comment="Ручное уменьшение суммы «Уже отложено»",
+        )
+
+    from app.services import allocation as allocation_service
+
+    recalculation_result = await allocation_service.recalculate_user_plan(session, user_id, today)
+    delta = adjustment["delta"]
+    if delta > 0:
+        message_type = "increased"
+    elif delta < 0:
+        message_type = "decreased"
+    else:
+        message_type = "unchanged"
+    return {
+        "obligation": obligation,
+        "old_reserved_amount": current_reserved,
+        "new_reserved_amount": new_reserved_amount,
+        "delta": delta,
+        "recalculation_result": recalculation_result["allocation"] if recalculation_result else None,
+        "message_type": message_type,
+    }

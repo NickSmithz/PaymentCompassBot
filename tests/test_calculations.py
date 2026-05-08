@@ -5,6 +5,7 @@ from app.calculations import (
     ObligationCalculationDTO,
     calculate_income_allocation,
     calculate_purchase_impact,
+    calculate_reserved_adjustment,
 )
 
 
@@ -157,3 +158,18 @@ def test_purchase_impact_existing_high_risk_stays_high():
     assert result.risk_after == "high"
     assert result.recommendation_type in {"better_not", "be_careful"}
     assert any("Риск просрочки уже высокий" in warning for warning in result.warnings)
+
+
+def test_reserved_adjustment_increase():
+    result = calculate_reserved_adjustment(current_reserved=7000, new_reserved=10000)
+    assert result == {"delta": 3000, "transaction_type": "manual_adjustment", "amount": 3000}
+
+
+def test_reserved_adjustment_decrease():
+    result = calculate_reserved_adjustment(current_reserved=10000, new_reserved=6000)
+    assert result == {"delta": -4000, "transaction_type": "release", "amount": 4000}
+
+
+def test_reserved_adjustment_unchanged():
+    result = calculate_reserved_adjustment(current_reserved=7000, new_reserved=7000)
+    assert result == {"delta": 0, "transaction_type": "none", "amount": 0}

@@ -1,6 +1,7 @@
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from app.texts import BTN_MARK_PAYMENT
 
 from app.config import get_settings
 from app.database import SessionLocal
@@ -15,7 +16,7 @@ from app.utils import parse_date, parse_money
 router = Router()
 
 
-@router.message(F.text == "✅ Отметить оплату")
+@router.message(F.text == BTN_MARK_PAYMENT)
 async def payment_start(message: Message, state: FSMContext) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)

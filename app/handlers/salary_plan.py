@@ -1,5 +1,6 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from app.texts import BTN_SALARY_PLAN
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -16,7 +17,7 @@ router = Router()
 
 
 @router.message(Command("salary_plan"))
-@router.message(F.text == "📆 План до зарплаты")
+@router.message(F.text == BTN_SALARY_PLAN)
 async def salary_plan_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)

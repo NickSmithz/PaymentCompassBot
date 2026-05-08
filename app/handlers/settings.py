@@ -1,5 +1,6 @@
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
+from app.texts import BTN_SETTINGS
 
 from app.database import SessionLocal
 from app.formatters import format_help
@@ -10,8 +11,8 @@ from app.services.users import get_or_create_user_from_telegram
 router = Router()
 
 
-@router.message(F.text == "⚙️ Настройки")
-@router.message(F.text == "⚙️ Настройки")
+@router.message(F.text == BTN_SETTINGS)
+@router.message(F.text == BTN_SETTINGS)
 async def settings_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)

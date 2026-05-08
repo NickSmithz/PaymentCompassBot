@@ -2,6 +2,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from app.texts import BTN_LIVING_MINIMUM
 
 from app.database import SessionLocal
 from app.formatters import format_living_minimum_summary, format_living_minimum_updated
@@ -15,7 +16,7 @@ router = Router()
 
 
 @router.message(Command("living_minimum"))
-@router.message(F.text == "🛟 Минимум на жизнь")
+@router.message(F.text == BTN_LIVING_MINIMUM)
 async def living_minimum_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)

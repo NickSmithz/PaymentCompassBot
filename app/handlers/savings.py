@@ -2,6 +2,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from app.texts import BTN_SAVINGS
 
 from app.database import SessionLocal
 from app.formatters import format_savings_history, format_savings_settings_updated, format_savings_summary
@@ -21,7 +22,7 @@ async def _send_savings_screen(message: Message, user) -> None:
 
 
 @router.message(Command("savings"))
-@router.message(F.text == "🏦 Накопления")
+@router.message(F.text == BTN_SAVINGS)
 async def savings_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)

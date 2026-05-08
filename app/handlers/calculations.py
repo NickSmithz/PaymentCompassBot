@@ -1,6 +1,7 @@
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
+from app.texts import BTN_SAFE_TO_SPEND
 
 from app.database import SessionLocal
 from app.formatters import format_allocation_result
@@ -13,8 +14,8 @@ router = Router()
 
 
 @router.message(Command("spend"))
-@router.message(F.text == "💰 Сколько можно тратить?")
-@router.message(F.text == "💰 Сколько можно тратить?")
+@router.message(F.text == BTN_SAFE_TO_SPEND)
+@router.message(F.text == BTN_SAFE_TO_SPEND)
 async def spend_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)

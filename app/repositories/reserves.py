@@ -21,17 +21,40 @@ async def bulk_create(session: AsyncSession, transactions: list[dict]) -> list[R
     return items
 
 
-async def sum_reserved_for_obligation(session: AsyncSession, obligation_id: int) -> int:
+async def sum_reserved_for_obligation(
+    session: AsyncSession,
+    user_id_or_obligation_id: int,
+    obligation_id: int | None = None,
+    *,
+    user_id: int | None = None,
+) -> int:
+    if obligation_id is None:
+        resolved_obligation_id = user_id_or_obligation_id
+        resolved_user_id = user_id
+    else:
+        resolved_obligation_id = obligation_id
+        resolved_user_id = user_id if user_id is not None else user_id_or_obligation_id
+
+    reserve_filters = [
+        ReserveTransaction.obligation_id == resolved_obligation_id,
+        ReserveTransaction.transaction_type.in_(["reserve", "manual_adjustment"]),
+    ]
+    release_filters = [
+        ReserveTransaction.obligation_id == resolved_obligation_id,
+        ReserveTransaction.transaction_type == "release",
+    ]
+    if resolved_user_id is not None:
+        reserve_filters.append(ReserveTransaction.user_id == resolved_user_id)
+        release_filters.append(ReserveTransaction.user_id == resolved_user_id)
+
     reserve = await session.scalar(
         select(func.coalesce(func.sum(ReserveTransaction.amount), 0)).where(
-            ReserveTransaction.obligation_id == obligation_id,
-            ReserveTransaction.transaction_type.in_(["reserve", "manual_adjustment"]),
+            *reserve_filters,
         )
     )
     release = await session.scalar(
         select(func.coalesce(func.sum(ReserveTransaction.amount), 0)).where(
-            ReserveTransaction.obligation_id == obligation_id,
-            ReserveTransaction.transaction_type == "release",
+            *release_filters,
         )
     )
     return max(0, (reserve or 0) - (release or 0))

@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from app.texts import BTN_EDIT, UNKNOWN_COMMAND_TEXT
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -8,7 +9,14 @@ from aiogram.types import CallbackQuery, Message
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.formatters import format_allocation_result, format_error, format_income_status_update, format_plan_recalculated
+from app.formatters import (
+    format_allocation_result,
+    format_error,
+    format_income_status_update,
+    format_plan_recalculated,
+    format_reserved_amount_updated,
+    format_reserved_amount_validation_error,
+)
 from app.keyboards import (
     edit_income_fields_keyboard,
     edit_menu_keyboard,
@@ -25,7 +33,7 @@ from app.services import incomes as income_service
 from app.services import obligations as obligation_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import EditIncomeStates, EditObligationStates
-from app.utils import parse_date, parse_money
+from app.utils import format_money, parse_date, parse_money
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -42,7 +50,7 @@ async def back(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.message(F.text == "✏️ Редактировать")
+@router.message(F.text == BTN_EDIT)
 async def edit_menu(message: Message) -> None:
     await message.answer("Что нужно изменить?", reply_markup=edit_menu_keyboard())
 
@@ -214,6 +222,25 @@ async def edit_obligation_field(callback: CallbackQuery, state: FSMContext) -> N
         await callback.message.answer("Выбери статус платежа:", reply_markup=obligation_status_keyboard(int(obligation_id)))
     elif field == "recurring":
         await callback.message.answer("Платёж повторяется каждый месяц?", reply_markup=obligation_recurring_keyboard(int(obligation_id)))
+    elif field == "reserved_amount":
+        async with SessionLocal() as session:
+            user = await get_or_create_user_from_telegram(
+                session,
+                callback.from_user.id,
+                callback.from_user.username,
+                callback.from_user.first_name,
+            )
+            info = await obligation_service.get_obligation_reserved_amount_info(session, user.id, int(obligation_id))
+        if info is None:
+            await state.clear()
+            await callback.message.answer("Платёж не найден или уже отключён.", reply_markup=main_menu_keyboard())
+        else:
+            await state.set_state(EditObligationStates.reserved_amount)
+            await callback.message.answer(
+                f"Сейчас отложено на платёж «{info['obligation'].title}»: {format_money(info['current_reserved_amount'])}.\n\n"
+                "Введите новую сумму, которая уже отложена.\n"
+                "Например: 10000"
+            )
     else:
         prompts = {
             "title": "Введи новое название платежа.",
@@ -252,6 +279,41 @@ async def edit_obligation_recurring(callback: CallbackQuery, state: FSMContext) 
     await callback.answer()
 
 
+@router.message(EditObligationStates.reserved_amount)
+async def edit_obligation_reserved_amount(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    try:
+        new_reserved_amount = parse_money(message.text)
+    except ValueError:
+        await message.answer("Не смог разобрать сумму. Введите сумму ещё раз, например: 10000")
+        return
+
+    async with SessionLocal() as session:
+        user = await get_or_create_user_from_telegram(
+            session,
+            message.from_user.id,
+            message.from_user.username,
+            message.from_user.first_name,
+        )
+        try:
+            summary = await obligation_service.update_obligation_reserved_amount(
+                session,
+                user.id,
+                data["obligation_id"],
+                new_reserved_amount,
+                _today(user.timezone),
+            )
+        except obligation_service.ReservedAmountValidationError as error:
+            await message.answer(format_reserved_amount_validation_error(error))
+            return
+
+    await state.clear()
+    if summary is None:
+        await message.answer("Платёж не найден или уже отключён.", reply_markup=main_menu_keyboard())
+        return
+    await message.answer(format_reserved_amount_updated(summary), reply_markup=main_menu_keyboard())
+
+
 @router.message(EditObligationStates.new_value)
 async def edit_obligation_value(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
@@ -286,7 +348,7 @@ async def edit_obligation_value(message: Message, state: FSMContext) -> None:
 
 @router.message()
 async def fallback(message: Message) -> None:
-    await message.answer("Не понял команду. Вернись в меню или напиши /help.", reply_markup=main_menu_keyboard())
+    await message.answer(UNKNOWN_COMMAND_TEXT, reply_markup=main_menu_keyboard())
 
 
 @router.callback_query()

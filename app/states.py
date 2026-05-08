@@ -29,6 +29,7 @@ class EditObligationStates(StatesGroup):
     choose = State()
     choose_field = State()
     new_value = State()
+    reserved_amount = State()
 
 
 class EditIncomeStates(StatesGroup):

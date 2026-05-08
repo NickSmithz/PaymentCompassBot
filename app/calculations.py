@@ -79,6 +79,15 @@ def calculate_safe_to_spend(income_amount: int, total_to_reserve: int) -> int:
     return max(0, income_amount - total_to_reserve)
 
 
+def calculate_reserved_adjustment(current_reserved: int, new_reserved: int) -> dict:
+    delta = new_reserved - current_reserved
+    if delta > 0:
+        return {"delta": delta, "transaction_type": "manual_adjustment", "amount": delta}
+    if delta < 0:
+        return {"delta": delta, "transaction_type": "release", "amount": abs(delta)}
+    return {"delta": 0, "transaction_type": "none", "amount": 0}
+
+
 def sort_obligations_by_priority(
     obligations: list[ObligationCalculationDTO], today: date
 ) -> list[ObligationCalculationDTO]:

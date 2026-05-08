@@ -16,7 +16,7 @@ def _income_dto(income) -> IncomeCalculationDTO:
 
 
 async def _obligation_dto(session: AsyncSession, obligation) -> ObligationCalculationDTO:
-    reserved = await reserves_repo.sum_reserved_for_obligation(session, obligation.id)
+    reserved = await reserves_repo.sum_reserved_for_obligation(session, obligation.user_id, obligation.id)
     paid = await payments_repo.sum_paid_for_obligation_period(session, obligation.id, None, obligation.next_payment_date)
     return ObligationCalculationDTO(
         id=obligation.id,

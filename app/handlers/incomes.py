@@ -1,5 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from app.texts import BTN_MY_INCOMES
+from app.texts import BTN_ADD_INCOME
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -20,7 +22,7 @@ router = Router()
 
 
 @router.message(Command("incomes"))
-@router.message(F.text == "💵 Мои доходы")
+@router.message(F.text == BTN_MY_INCOMES)
 async def incomes_list_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(
@@ -35,8 +37,8 @@ async def incomes_list_handler(message: Message) -> None:
 
 
 @router.message(Command("add_income"))
-@router.message(F.text == "➕ Добавить доход")
-@router.message(F.text == "➕ Добавить доход")
+@router.message(F.text == BTN_ADD_INCOME)
+@router.message(F.text == BTN_ADD_INCOME)
 async def add_income_start(message: Message, state: FSMContext) -> None:
     await state.set_state(AddIncomeStates.title)
     await message.answer("Как назвать доход? Например: Аванс, Зарплата, Подработка.")

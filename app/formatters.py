@@ -1,3 +1,11 @@
+from app.texts import (
+    BTN_ADD_INCOME,
+    BTN_ADD_OBLIGATION,
+    BTN_EDIT,
+    BTN_FINANCIAL_STATUS,
+    BTN_MY_INCOMES,
+    BTN_UPCOMING_PAYMENTS,
+)
 from app.utils import format_date, format_money, risk_emoji, risk_label
 
 
@@ -52,9 +60,9 @@ def format_allocation_result(result) -> str:
 def format_obligations_list(summary) -> str:
     items = summary["items"] if isinstance(summary, dict) else summary
     if not items:
-        return "📅 Ближайшие платежи\n\nПока нет добавленных платежей.\n\nДобавь первый платёж через кнопку «➕ Добавить платёж»."
+        return f"{BTN_UPCOMING_PAYMENTS}\n\nПока нет добавленных платежей.\n\nДобавь первый платёж через кнопку «{BTN_ADD_OBLIGATION}»."
 
-    lines = ["📅 Ближайшие платежи", ""]
+    lines = [BTN_UPCOMING_PAYMENTS, ""]
     for index, item in enumerate(items, start=1):
         status = "🟢 закрыт" if item["remaining_amount"] == 0 else ("🟡 нужно добрать" if item["days_left"] <= 7 else "⚪ впереди")
         lines.extend(
@@ -84,10 +92,10 @@ def format_obligations_list(summary) -> str:
 def format_incomes_list(summary) -> str:
     incomes = summary["incomes"] if isinstance(summary, dict) else summary
     if not incomes:
-        return "💵 Мои доходы\n\nПока нет добавленных доходов.\n\nДобавь первый доход через кнопку «➕ Добавить доход»."
+        return f"{BTN_MY_INCOMES}\n\nПока нет добавленных доходов.\n\nДобавь первый доход через кнопку «{BTN_ADD_INCOME}»."
 
     labels = {"received": "✅ получен", "expected": "⏳ ожидается", "cancelled": "❌ отменён"}
-    lines = ["💵 Мои доходы", ""]
+    lines = [BTN_MY_INCOMES, ""]
     for index, income in enumerate(incomes, start=1):
         lines.extend(
             [
@@ -113,7 +121,7 @@ def format_incomes_list(summary) -> str:
         if summary["total_cancelled"] > 0:
             lines.append(f"Отменено: {format_money(summary['total_cancelled'])}")
         lines.append("")
-    lines.append("Чтобы изменить или удалить доход, нажми «✏️ Редактировать».")
+    lines.append(f"Чтобы изменить или удалить доход, нажми «{BTN_EDIT}».")
     return "\n".join(lines).strip()
 
 
@@ -142,7 +150,7 @@ def format_living_minimum_updated(settings) -> str:
 def format_financial_status(summary) -> str:
     if not summary.get("has_income"):
         return (
-            "📍 Финансовый статус\n\n"
+            f"{BTN_FINANCIAL_STATUS}\n\n"
             "Пока я не могу посчитать финансовый статус.\n\n"
             "Добавь доход со статусом «Уже пришёл», и я покажу:\n"
             "- сколько нужно отложить;\n"
@@ -152,7 +160,7 @@ def format_financial_status(summary) -> str:
         )
 
     lines = [
-        "📍 Финансовый статус",
+        BTN_FINANCIAL_STATUS,
         "",
         f"Состояние: {_status_label(summary['overall_status'])}",
         "",
@@ -361,6 +369,55 @@ def format_plan_recalculated(entity: str = "Данные") -> str:
     return f"{entity} обновлены. Рекомендации пересчитаны."
 
 
+def format_reserved_amount_updated(summary) -> str:
+    obligation = summary["obligation"]
+    old_reserved = summary["old_reserved_amount"]
+    new_reserved = summary["new_reserved_amount"]
+    delta = summary["delta"]
+    remaining = max(0, obligation.monthly_payment_amount - new_reserved)
+    message_type = summary["message_type"]
+    result = summary.get("recalculation_result")
+
+    if message_type == "unchanged":
+        lines = [
+            "Сумма «Уже отложено» не изменилась.",
+            "",
+            f"Платёж: {obligation.title}",
+            f"Уже отложено: {format_money(new_reserved)}",
+            f"Осталось собрать: {format_money(remaining)}",
+        ]
+    else:
+        change_title = "Увеличение" if message_type == "increased" else "Уменьшение"
+        sign = "+" if message_type == "increased" else "-"
+        lines = [
+            "✅ Сумма «Уже отложено» обновлена.",
+            "",
+            f"Платёж: {obligation.title}",
+            f"Было отложено: {format_money(old_reserved)}",
+            f"Стало отложено: {format_money(new_reserved)}",
+            f"{change_title}: {sign}{format_money(abs(delta))}",
+            "",
+            f"Осталось собрать: {format_money(remaining)}",
+            "",
+            "Финансовые данные пересчитаны.",
+        ]
+
+    if result is None:
+        lines.extend(["", "Финансовые данные обновлены. Для точного расчёта добавь доход со статусом «Уже пришёл»."])
+    elif result.overall_risk in {"medium", "high"}:
+        lines.extend(["", f"Текущий риск: {risk_emoji(result.overall_risk)} {risk_label(result.overall_risk)}"])
+    return "\n".join(lines)
+
+
+def format_reserved_amount_validation_error(error) -> str:
+    if getattr(error, "code", "") == "too_large":
+        return (
+            f"Сумма «Уже отложено» не может быть больше суммы платежа: {format_money(error.max_amount)}.\n"
+            "Введите сумму ещё раз."
+        )
+    return "Сумма «Уже отложено» не может быть меньше 0. Введите сумму ещё раз."
+
+
 def format_savings_summary(summary) -> str:
     settings = summary["settings"]
     if not settings.is_enabled:
@@ -407,6 +464,7 @@ def format_help() -> str:
         "🛒 Что если купить? — проверяет покупку до оплаты. Введи сумму, а бот покажет, как покупка повлияет на свободные деньги, план до зарплаты, минимум на жизнь и риск просрочки.\n"
         "💵 Мои доходы — список всех добавленных доходов: ожидаемых, полученных и отменённых.\n"
         "🏦 Накопления — копилка, которая помогает откладывать процент с каждого дохода.\n\n"
+        "В разделе «Редактировать платежи» можно изменить сумму «Уже отложено». После изменения бот пересчитает ближайшие платежи, финансовый статус и план до зарплаты.\n\n"
         "Команды:\n"
         "/start — запустить бота\n"
         "/menu — главное меню\n"

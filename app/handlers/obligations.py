@@ -1,4 +1,6 @@
 import logging
+from app.texts import BTN_ADD_OBLIGATION
+from app.texts import BTN_UPCOMING_PAYMENTS
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -19,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 @router.message(Command("add_obligation"))
-@router.message(F.text == "➕ Добавить платёж")
-@router.message(F.text == "➕ Добавить платёж")
+@router.message(F.text == BTN_ADD_OBLIGATION)
+@router.message(F.text == BTN_ADD_OBLIGATION)
 async def add_obligation_start(message: Message, state: FSMContext) -> None:
     await state.set_state(AddObligationStates.title)
     await message.answer("Как называется платёж? Например: Кредит Сбер, Ипотека, Рассрочка, Кредитка.")
@@ -112,8 +114,8 @@ async def add_obligation_finish(callback: CallbackQuery, state: FSMContext) -> N
 
 
 @router.message(Command("payments"))
-@router.message(F.text == "📅 Ближайшие платежи")
-@router.message(F.text == "📅 Ближайшие платежи")
+@router.message(F.text == BTN_UPCOMING_PAYMENTS)
+@router.message(F.text == BTN_UPCOMING_PAYMENTS)
 async def upcoming_payments(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)

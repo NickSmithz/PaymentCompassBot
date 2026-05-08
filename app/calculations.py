@@ -1,0 +1,268 @@
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from math import ceil
+
+
+@dataclass(frozen=True)
+class IncomeCalculationDTO:
+    id: int
+    title: str
+    amount: int
+    income_date: date
+    status: str
+
+
+@dataclass(frozen=True)
+class ObligationCalculationDTO:
+    id: int
+    title: str
+    type: str
+    monthly_payment_amount: int
+    next_payment_date: date
+    priority: int
+    reserved_amount: int
+    paid_amount: int
+    is_recurring: bool
+
+
+@dataclass
+class AllocationItem:
+    obligation_id: int
+    title: str
+    due_date: date
+    required_amount: int
+    remaining_amount: int
+    recommended_reserve: int
+    risk: str
+
+
+@dataclass
+class AllocationResult:
+    income_id: int
+    income_title: str
+    income_amount: int
+    total_to_reserve: int
+    safe_to_spend: int
+    overall_risk: str
+    savings_enabled: bool = False
+    savings_percent: int | None = None
+    desired_savings_amount: int = 0
+    actual_savings_amount: int = 0
+    living_minimum_enabled: bool = False
+    living_minimum_amount: int = 0
+    living_minimum_gap: int = 0
+    items: list[AllocationItem] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PurchaseImpactResult:
+    purchase_amount: int
+    safe_to_spend_before: int
+    safe_to_spend_after: int
+    overspend_amount: int
+    daily_limit_before: int | None
+    daily_limit_after: int | None
+    daily_limit_delta: int | None
+    living_gap_before: int
+    living_gap_after: int
+    risk_after: str
+    recommendation_type: str
+    warnings: list[str] = field(default_factory=list)
+
+
+def calculate_remaining_amount(obligation: ObligationCalculationDTO) -> int:
+    return max(0, obligation.monthly_payment_amount - obligation.reserved_amount - obligation.paid_amount)
+
+
+def calculate_safe_to_spend(income_amount: int, total_to_reserve: int) -> int:
+    return max(0, income_amount - total_to_reserve)
+
+
+def sort_obligations_by_priority(
+    obligations: list[ObligationCalculationDTO], today: date
+) -> list[ObligationCalculationDTO]:
+    return sorted(
+        obligations,
+        key=lambda item: (
+            0 if item.next_payment_date < today and calculate_remaining_amount(item) > 0 else 1,
+            item.next_payment_date,
+            item.priority,
+            -item.monthly_payment_amount,
+        ),
+    )
+
+
+def _future_income_sum(
+    future_incomes: list[IncomeCalculationDTO], current_income: IncomeCalculationDTO, due_date: date
+) -> int:
+    return sum(
+        income.amount
+        for income in future_incomes
+        if income.income_date > current_income.income_date
+        and income.income_date <= due_date
+        and income.status in {"expected", "received"}
+    )
+
+
+def calculate_obligation_risk(
+    obligation: ObligationCalculationDTO,
+    remaining_amount: int,
+    available_until_due: int,
+    uses_future_income: bool,
+    today: date,
+) -> str:
+    days_left = (obligation.next_payment_date - today).days
+    if obligation.next_payment_date < today and remaining_amount > 0:
+        return "high"
+    if days_left <= 3 and remaining_amount > available_until_due:
+        return "high"
+    if days_left <= 7 and remaining_amount > 0:
+        return "medium"
+    if uses_future_income and remaining_amount > 0:
+        return "medium"
+    return "low"
+
+
+def calculate_overall_risk(items: list[AllocationItem]) -> str:
+    risks = {item.risk for item in items}
+    if "high" in risks:
+        return "high"
+    if "medium" in risks:
+        return "medium"
+    return "low"
+
+
+def calculate_income_allocation(
+    current_income: IncomeCalculationDTO,
+    obligations: list[ObligationCalculationDTO],
+    future_incomes: list[IncomeCalculationDTO],
+    today: date,
+) -> AllocationResult:
+    current_income_remaining = max(0, current_income.amount)
+    items: list[AllocationItem] = []
+    warnings: list[str] = []
+
+    for obligation in sort_obligations_by_priority(obligations, today):
+        remaining_amount = calculate_remaining_amount(obligation)
+        future_sum = _future_income_sum(future_incomes, current_income, obligation.next_payment_date)
+        total_available_until_due = current_income_remaining + future_sum
+        recommended_reserve = 0
+
+        # Главная логика MVP: близкие и просроченные платежи закрываем максимально,
+        # остальные делим между текущим и будущими доходами до даты платежа.
+        if remaining_amount > 0 and current_income_remaining > 0:
+            urgent = obligation.next_payment_date < today or obligation.next_payment_date <= today + timedelta(days=3)
+            if future_sum <= 0 or urgent:
+                recommended_reserve = min(remaining_amount, current_income_remaining)
+            elif total_available_until_due > 0:
+                current_share = current_income_remaining / total_available_until_due
+                recommended_reserve = min(remaining_amount, current_income_remaining, ceil(remaining_amount * current_share))
+
+        uses_future_income = remaining_amount > recommended_reserve and future_sum > 0
+        risk = calculate_obligation_risk(
+            obligation=obligation,
+            remaining_amount=max(0, remaining_amount - recommended_reserve),
+            available_until_due=total_available_until_due,
+            uses_future_income=uses_future_income,
+            today=today,
+        )
+        if remaining_amount > total_available_until_due:
+            warnings.append(f"До платежа «{obligation.title}» может не хватить денег.")
+
+        items.append(
+            AllocationItem(
+                obligation_id=obligation.id,
+                title=obligation.title,
+                due_date=obligation.next_payment_date,
+                required_amount=obligation.monthly_payment_amount,
+                remaining_amount=remaining_amount,
+                recommended_reserve=recommended_reserve,
+                risk=risk,
+            )
+        )
+        current_income_remaining -= recommended_reserve
+
+    total_to_reserve = sum(item.recommended_reserve for item in items)
+    return AllocationResult(
+        income_id=current_income.id,
+        income_title=current_income.title,
+        income_amount=current_income.amount,
+        total_to_reserve=total_to_reserve,
+        safe_to_spend=calculate_safe_to_spend(current_income.amount, total_to_reserve),
+        overall_risk=calculate_overall_risk(items),
+        items=items,
+        warnings=warnings,
+    )
+
+
+def calculate_purchase_impact(
+    purchase_amount: int,
+    safe_to_spend: int,
+    days_until_next_income: int | None,
+    living_minimum_enabled: bool,
+    living_minimum_amount: int,
+    overall_risk: str,
+) -> PurchaseImpactResult:
+    safe_to_spend_before = max(0, safe_to_spend)
+    safe_to_spend_after = max(0, safe_to_spend_before - purchase_amount)
+    overspend_amount = max(0, purchase_amount - safe_to_spend_before)
+
+    if days_until_next_income is None:
+        daily_limit_before = None
+        daily_limit_after = None
+        daily_limit_delta = None
+    else:
+        days = max(1, days_until_next_income)
+        daily_limit_before = safe_to_spend_before // days
+        daily_limit_after = safe_to_spend_after // days
+        daily_limit_delta = daily_limit_before - daily_limit_after
+
+    living_gap_before = max(0, living_minimum_amount - safe_to_spend_before) if living_minimum_enabled else 0
+    living_gap_after = max(0, living_minimum_amount - safe_to_spend_after) if living_minimum_enabled else 0
+    warnings: list[str] = []
+    if days_until_next_income is None:
+        warnings.append("Следующий доход не указан, дневной лимит посчитать нельзя.")
+    if overspend_amount > 0:
+        warnings.append("Покупка больше свободной суммы.")
+    if living_minimum_enabled and living_gap_after > 0:
+        warnings.append("После покупки свободных денег меньше минимума на жизнь.")
+    if overall_risk == "high":
+        warnings.append("Риск просрочки уже высокий до покупки.")
+
+    if overall_risk == "high" or overspend_amount > 0 or (safe_to_spend_after == 0 and (days_until_next_income or 0) > 1):
+        risk_after = "high"
+    elif (
+        overall_risk == "medium"
+        or (living_minimum_enabled and safe_to_spend_after < living_minimum_amount)
+        or (safe_to_spend_before > 0 and safe_to_spend_after < safe_to_spend_before * 0.2)
+    ):
+        risk_after = "medium"
+    else:
+        risk_after = "low"
+
+    if (
+        purchase_amount <= safe_to_spend_before
+        and (not living_minimum_enabled or safe_to_spend_after >= living_minimum_amount)
+        and risk_after == "low"
+    ):
+        recommendation_type = "can_buy"
+    elif overspend_amount > 0 or risk_after == "high" or daily_limit_after == 0:
+        recommendation_type = "better_not"
+    else:
+        recommendation_type = "be_careful"
+
+    return PurchaseImpactResult(
+        purchase_amount=purchase_amount,
+        safe_to_spend_before=safe_to_spend_before,
+        safe_to_spend_after=safe_to_spend_after,
+        overspend_amount=overspend_amount,
+        daily_limit_before=daily_limit_before,
+        daily_limit_after=daily_limit_after,
+        daily_limit_delta=daily_limit_delta,
+        living_gap_before=living_gap_before,
+        living_gap_after=living_gap_after,
+        risk_after=risk_after,
+        recommendation_type=recommendation_type,
+        warnings=warnings,
+    )

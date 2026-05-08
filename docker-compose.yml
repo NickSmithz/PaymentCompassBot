@@ -1,0 +1,8 @@
+services:
+  bot:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./anti_prosrochka.db:/app/anti_prosrochka.db
+    restart: unless-stopped

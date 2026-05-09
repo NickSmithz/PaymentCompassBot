@@ -4,6 +4,7 @@ from app.texts import (
     BTN_ADD_INCOME,
     BTN_ADD_OBLIGATION,
     BTN_BACK,
+    BTN_CANCEL_ACTION,
     BTN_EDIT,
     BTN_FINANCIAL_STATUS,
     BTN_LIVING_MINIMUM,
@@ -91,6 +92,14 @@ def incomes_inline_keyboard(incomes, prefix: str) -> InlineKeyboardMarkup:
 
 def back_keyboard() -> InlineKeyboardMarkup:
     return _inline([[(BTN_BACK, "back")]])
+
+
+def cancel_action_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=BTN_CANCEL_ACTION), KeyboardButton(text=BTN_MENU)]],
+        resize_keyboard=True,
+        input_field_placeholder="Введите данные или отмените действие",
+    )
 
 
 def edit_obligation_fields_keyboard(obligation_id: int) -> InlineKeyboardMarkup:
@@ -200,3 +209,4 @@ def purchase_impact_keyboard(recommendation_type: str) -> InlineKeyboardMarkup:
         rows.append([("Посмотреть ближайшие платежи", "what_if:payments")])
     rows.append([(BTN_MENU, "back")])
     return _inline(rows)
+

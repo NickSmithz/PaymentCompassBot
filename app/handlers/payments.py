@@ -6,7 +6,7 @@ from app.texts import BTN_MARK_PAYMENT
 from app.config import get_settings
 from app.database import SessionLocal
 from app.formatters import format_payment_added
-from app.keyboards import main_menu_keyboard, obligations_inline_keyboard, today_keyboard
+from app.keyboards import cancel_action_keyboard, main_menu_keyboard, obligations_inline_keyboard, today_keyboard
 from app.services import obligations as obligation_service
 from app.services import payments as payment_service
 from app.services.users import get_or_create_user_from_telegram
@@ -46,7 +46,7 @@ async def payment_choose(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(obligation_id=obligation.id, obligation_title=obligation.title)
     await state.set_state(PaymentStates.amount)
     prefix = "Выбран другой платёж" if previous_obligation_id and previous_obligation_id != obligation.id else "Выбран платёж"
-    await callback.message.answer(f"{prefix}: {obligation.title}\n\nВведи сумму оплаты в рублях.\nНапример: 12500")
+    await callback.message.answer(f"{prefix}: {obligation.title}\n\nВведи сумму оплаты в рублях.\nНапример: 12500", reply_markup=cancel_action_keyboard())
 
 
 @router.message(PaymentStates.amount)
@@ -54,7 +54,7 @@ async def payment_amount(message: Message, state: FSMContext) -> None:
     try:
         amount = parse_money(message.text)
     except ValueError:
-        await message.answer("Не смог разобрать сумму. Напиши сумму в рублях.")
+        await message.answer("Не смог разобрать сумму. Напиши сумму в рублях.", reply_markup=cancel_action_keyboard())
         return
     await state.update_data(amount=amount)
     await state.set_state(PaymentStates.paid_at)
@@ -72,7 +72,7 @@ async def payment_date(message: Message, state: FSMContext) -> None:
     try:
         paid_at = parse_date(message.text, get_settings().timezone)
     except ValueError:
-        await message.answer("Не смог разобрать дату. Напиши ДД.ММ.ГГГГ или нажми «Сегодня».")
+        await message.answer("Не смог разобрать дату. Напиши ДД.ММ.ГГГГ или нажми «Сегодня».", reply_markup=cancel_action_keyboard())
         return
     await _finish_payment(message, message.from_user, state, paid_at)
 
@@ -87,3 +87,4 @@ async def _finish_payment(message: Message, tg_user, state: FSMContext, paid_at)
         await message.answer("Платёж не найден или уже отключён.", reply_markup=main_menu_keyboard())
         return
     await message.answer(format_payment_added(obligation), reply_markup=main_menu_keyboard())
+

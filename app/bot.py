@@ -2,7 +2,8 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.config import get_settings
-from app.handlers import common, calculations, financial_status, incomes, living_minimum, obligations, payments, progress, salary_plan, savings, settings, start, what_if
+from app.handlers import common, calculations, financial_status, incomes, living_minimum, navigation, obligations, payments, progress, salary_plan, savings, settings, start, what_if
+from app.middlewares.navigation_reset import NavigationResetMiddleware
 
 
 def create_bot() -> Bot:
@@ -14,8 +15,10 @@ def create_bot() -> Bot:
 
 def create_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=MemoryStorage())
+    dp.message.middleware(NavigationResetMiddleware())
     for router in (
         start.router,
+        navigation.router,
         financial_status.router,
         what_if.router,
         salary_plan.router,
@@ -31,3 +34,5 @@ def create_dispatcher() -> Dispatcher:
     ):
         dp.include_router(router)
     return dp
+
+

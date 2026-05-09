@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message
 from app.config import get_settings
 from app.database import SessionLocal
 from app.formatters import format_obligation_added, format_obligations_list
-from app.keyboards import main_menu_keyboard, obligation_type_keyboard, priority_keyboard, recurring_keyboard
+from app.keyboards import cancel_action_keyboard, main_menu_keyboard, obligation_type_keyboard, priority_keyboard, recurring_keyboard
 from app.services import obligations as obligation_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import AddObligationStates
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 @router.message(F.text == BTN_ADD_OBLIGATION)
 async def add_obligation_start(message: Message, state: FSMContext) -> None:
     await state.set_state(AddObligationStates.title)
-    await message.answer("Как называется платёж? Например: Кредит Сбер, Ипотека, Рассрочка, Кредитка.")
+    await message.answer("Как называется платёж? Например: Кредит Сбер, Ипотека, Рассрочка, Кредитка.", reply_markup=cancel_action_keyboard())
 
 
 @router.message(AddObligationStates.title)
@@ -39,7 +39,7 @@ async def add_obligation_title(message: Message, state: FSMContext) -> None:
 async def add_obligation_type(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(type=callback.data.split(":", 1)[1])
     await state.set_state(AddObligationStates.amount)
-    await callback.message.answer("Какая сумма платежа в месяц? Напиши сумму в рублях, например: 12500")
+    await callback.message.answer("Какая сумма платежа в месяц? Напиши сумму в рублях, например: 12500", reply_markup=cancel_action_keyboard())
     await callback.answer()
 
 
@@ -48,11 +48,11 @@ async def add_obligation_amount(message: Message, state: FSMContext) -> None:
     try:
         amount = parse_money(message.text)
     except ValueError:
-        await message.answer("Не смог разобрать сумму. Напиши, например: 12500 или 12 500 ₽")
+        await message.answer("Не смог разобрать сумму. Напиши, например: 12500 или 12 500 ₽", reply_markup=cancel_action_keyboard())
         return
     await state.update_data(monthly_payment_amount=amount)
     await state.set_state(AddObligationStates.next_payment_date)
-    await message.answer("Какая ближайшая дата платежа? Напиши в формате ДД.ММ.ГГГГ, например: 15.05.2026")
+    await message.answer("Какая ближайшая дата платежа? Напиши в формате ДД.ММ.ГГГГ, например: 15.05.2026", reply_markup=cancel_action_keyboard())
 
 
 @router.message(AddObligationStates.next_payment_date)
@@ -60,7 +60,7 @@ async def add_obligation_date(message: Message, state: FSMContext) -> None:
     try:
         value = parse_date(message.text, get_settings().timezone)
     except ValueError:
-        await message.answer("Не смог разобрать дату. Напиши в формате ДД.ММ.ГГГГ, например: 15.05.2026")
+        await message.answer("Не смог разобрать дату. Напиши в формате ДД.ММ.ГГГГ, например: 15.05.2026", reply_markup=cancel_action_keyboard())
         return
     await state.update_data(next_payment_date=value)
     await state.set_state(AddObligationStates.is_recurring)
@@ -73,7 +73,7 @@ async def add_obligation_recurring(callback: CallbackQuery, state: FSMContext) -
     data = await state.get_data()
     await state.update_data(is_recurring=is_recurring, payment_day=data["next_payment_date"].day if is_recurring else None)
     await state.set_state(AddObligationStates.total_debt_amount)
-    await callback.message.answer("Какой общий остаток долга? Можно написать 0, если не хочешь указывать.")
+    await callback.message.answer("Какой общий остаток долга? Можно написать 0, если не хочешь указывать.", reply_markup=cancel_action_keyboard())
     await callback.answer()
 
 
@@ -82,11 +82,11 @@ async def add_obligation_debt(message: Message, state: FSMContext) -> None:
     try:
         amount = parse_money(message.text)
     except ValueError:
-        await message.answer("Не смог разобрать сумму. Напиши 0 или сумму в рублях.")
+        await message.answer("Не смог разобрать сумму. Напиши 0 или сумму в рублях.", reply_markup=cancel_action_keyboard())
         return
     await state.update_data(total_debt_amount=amount if amount > 0 else None)
     await state.set_state(AddObligationStates.already_reserved_amount)
-    await message.answer("Сколько уже отложено на этот платёж? Можно написать 0.")
+    await message.answer("Сколько уже отложено на этот платёж? Можно написать 0.", reply_markup=cancel_action_keyboard())
 
 
 @router.message(AddObligationStates.already_reserved_amount)
@@ -94,7 +94,7 @@ async def add_obligation_reserved(message: Message, state: FSMContext) -> None:
     try:
         amount = parse_money(message.text)
     except ValueError:
-        await message.answer("Не смог разобрать сумму. Напиши 0 или сумму в рублях.")
+        await message.answer("Не смог разобрать сумму. Напиши 0 или сумму в рублях.", reply_markup=cancel_action_keyboard())
         return
     await state.update_data(already_reserved_amount=amount)
     await state.set_state(AddObligationStates.priority)
@@ -121,3 +121,4 @@ async def upcoming_payments(message: Message) -> None:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)
         items = await obligation_service.get_upcoming_obligations_summary(session, user.id, parse_date("сегодня", user.timezone))
     await message.answer(format_obligations_list(items), reply_markup=main_menu_keyboard())
+

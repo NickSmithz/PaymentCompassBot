@@ -1,9 +1,10 @@
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from app.texts import BTN_EDIT, UNKNOWN_COMMAND_TEXT
+from app.texts import BTN_CANCEL_ACTION, BTN_EDIT, BTN_MENU, UNKNOWN_COMMAND_TEXT
 
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -18,6 +19,7 @@ from app.formatters import (
     format_reserved_amount_validation_error,
 )
 from app.keyboards import (
+    cancel_action_keyboard,
     edit_income_fields_keyboard,
     edit_menu_keyboard,
     edit_obligation_fields_keyboard,
@@ -42,6 +44,23 @@ logger = logging.getLogger(__name__)
 def _today(timezone: str):
     return datetime.now(ZoneInfo(timezone or get_settings().timezone)).date()
 
+
+
+@router.message(Command("cancel"))
+@router.message(F.text == BTN_CANCEL_ACTION)
+async def cancel_action(message: Message, state: FSMContext, fsm_was_active: bool = False) -> None:
+    current_state = await state.get_state()
+    if fsm_was_active or current_state is not None:
+        await state.clear()
+        await message.answer("Действие отменено.", reply_markup=main_menu_keyboard())
+    else:
+        await message.answer("Сейчас нет активного действия.", reply_markup=main_menu_keyboard())
+
+
+@router.message(F.text == BTN_MENU)
+async def menu_button(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Главное меню", reply_markup=main_menu_keyboard())
 
 @router.callback_query(F.data == "back")
 async def back(callback: CallbackQuery, state: FSMContext) -> None:
@@ -124,7 +143,7 @@ async def edit_income_field(callback: CallbackQuery, state: FSMContext) -> None:
             "source": "Введи источник дохода. Чтобы очистить источник, отправь «-».",
         }
         await state.set_state(EditIncomeStates.new_value)
-        await callback.message.answer(prompts.get(field, "Введи новое значение."))
+        await callback.message.answer(prompts.get(field, "Введи новое значение."), reply_markup=cancel_action_keyboard())
     await callback.answer()
 
 
@@ -155,7 +174,7 @@ async def edit_income_value(message: Message, state: FSMContext) -> None:
         else:
             raise ValueError
     except ValueError:
-        await message.answer("Не смог разобрать значение. Попробуй ещё раз.")
+        await message.answer("Не смог разобрать значение. Попробуй ещё раз.", reply_markup=cancel_action_keyboard())
         return
 
     async with SessionLocal() as session:
@@ -239,7 +258,8 @@ async def edit_obligation_field(callback: CallbackQuery, state: FSMContext) -> N
             await callback.message.answer(
                 f"Сейчас отложено на платёж «{info['obligation'].title}»: {format_money(info['current_reserved_amount'])}.\n\n"
                 "Введите новую сумму, которая уже отложена.\n"
-                "Например: 10000"
+                "Например: 10000",
+                reply_markup=cancel_action_keyboard(),
             )
     else:
         prompts = {
@@ -251,7 +271,7 @@ async def edit_obligation_field(callback: CallbackQuery, state: FSMContext) -> N
             "priority": "Введи приоритет: 1 — высокий, 2 — средний, 3 — обычный.",
         }
         await state.set_state(EditObligationStates.new_value)
-        await callback.message.answer(prompts.get(field, "Введи новое значение."))
+        await callback.message.answer(prompts.get(field, "Введи новое значение."), reply_markup=cancel_action_keyboard())
     await callback.answer()
 
 
@@ -285,7 +305,7 @@ async def edit_obligation_reserved_amount(message: Message, state: FSMContext) -
     try:
         new_reserved_amount = parse_money(message.text)
     except ValueError:
-        await message.answer("Не смог разобрать сумму. Введите сумму ещё раз, например: 10000")
+        await message.answer("Не смог разобрать сумму. Введите сумму ещё раз, например: 10000", reply_markup=cancel_action_keyboard())
         return
 
     async with SessionLocal() as session:
@@ -304,7 +324,7 @@ async def edit_obligation_reserved_amount(message: Message, state: FSMContext) -
                 _today(user.timezone),
             )
         except obligation_service.ReservedAmountValidationError as error:
-            await message.answer(format_reserved_amount_validation_error(error))
+            await message.answer(format_reserved_amount_validation_error(error), reply_markup=cancel_action_keyboard())
             return
 
     await state.clear()
@@ -335,7 +355,7 @@ async def edit_obligation_value(message: Message, state: FSMContext) -> None:
         else:
             raise ValueError
     except ValueError:
-        await message.answer("Не смог разобрать значение. Попробуй ещё раз.")
+        await message.answer("Не смог разобрать значение. Попробуй ещё раз.", reply_markup=cancel_action_keyboard())
         return
 
     async with SessionLocal() as session:
@@ -366,3 +386,7 @@ async def errors_handler(event) -> None:
     target = message.message if getattr(message, "message", None) else message
     if target:
         await target.answer(format_error(), reply_markup=main_menu_keyboard())
+
+
+
+

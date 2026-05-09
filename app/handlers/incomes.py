@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, Message
 from app.config import get_settings
 from app.database import SessionLocal
 from app.formatters import format_allocation_result, format_income_added, format_incomes_list
-from app.keyboards import income_status_keyboard, main_menu_keyboard, today_keyboard
+from app.keyboards import cancel_action_keyboard, income_status_keyboard, main_menu_keyboard, today_keyboard
 from app.services import allocation as allocation_service
 from app.services import incomes as income_service
 from app.services.users import get_or_create_user_from_telegram
@@ -41,14 +41,14 @@ async def incomes_list_handler(message: Message) -> None:
 @router.message(F.text == BTN_ADD_INCOME)
 async def add_income_start(message: Message, state: FSMContext) -> None:
     await state.set_state(AddIncomeStates.title)
-    await message.answer("Как назвать доход? Например: Аванс, Зарплата, Подработка.")
+    await message.answer("Как назвать доход? Например: Аванс, Зарплата, Подработка.", reply_markup=cancel_action_keyboard())
 
 
 @router.message(AddIncomeStates.title)
 async def add_income_title(message: Message, state: FSMContext) -> None:
     await state.update_data(title=message.text.strip())
     await state.set_state(AddIncomeStates.amount)
-    await message.answer("Какая сумма дохода? Напиши сумму в рублях.")
+    await message.answer("Какая сумма дохода? Напиши сумму в рублях.", reply_markup=cancel_action_keyboard())
 
 
 @router.message(AddIncomeStates.amount)
@@ -56,7 +56,7 @@ async def add_income_amount(message: Message, state: FSMContext) -> None:
     try:
         amount = parse_money(message.text)
     except ValueError:
-        await message.answer("Не смог разобрать сумму. Напиши, например: 35000 или 35к")
+        await message.answer("Не смог разобрать сумму. Напиши, например: 35000 или 35к", reply_markup=cancel_action_keyboard())
         return
     await state.update_data(amount=amount)
     await state.set_state(AddIncomeStates.income_date)
@@ -76,7 +76,7 @@ async def add_income_date(message: Message, state: FSMContext) -> None:
     try:
         value = parse_date(message.text, get_settings().timezone)
     except ValueError:
-        await message.answer("Не смог разобрать дату. Напиши ДД.ММ.ГГГГ или нажми «Сегодня».")
+        await message.answer("Не смог разобрать дату. Напиши ДД.ММ.ГГГГ или нажми «Сегодня».", reply_markup=cancel_action_keyboard())
         return
     await state.update_data(income_date=value)
     await state.set_state(AddIncomeStates.status)
@@ -98,3 +98,4 @@ async def add_income_finish(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.message.answer(text, reply_markup=main_menu_keyboard())
     await callback.answer()
+

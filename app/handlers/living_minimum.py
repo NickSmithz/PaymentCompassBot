@@ -6,7 +6,7 @@ from app.texts import BTN_LIVING_MINIMUM
 
 from app.database import SessionLocal
 from app.formatters import format_living_minimum_summary, format_living_minimum_updated
-from app.keyboards import living_minimum_disabled_keyboard, living_minimum_enabled_keyboard, main_menu_keyboard
+from app.keyboards import cancel_action_keyboard, living_minimum_disabled_keyboard, living_minimum_enabled_keyboard, main_menu_keyboard
 from app.services import living_minimum as living_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import LivingMinimumStates
@@ -28,7 +28,7 @@ async def living_minimum_handler(message: Message) -> None:
 @router.callback_query(F.data == "living:set")
 async def ask_living_minimum_amount(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(LivingMinimumStates.amount)
-    await callback.message.answer("Какую сумму нужно оставить на жизнь до следующего дохода? Напиши сумму в рублях, например: 20000")
+    await callback.message.answer("Какую сумму нужно оставить на жизнь до следующего дохода? Напиши сумму в рублях, например: 20000", reply_markup=cancel_action_keyboard())
     await callback.answer()
 
 
@@ -39,7 +39,7 @@ async def save_living_minimum_amount(message: Message, state: FSMContext) -> Non
         if amount <= 0:
             raise ValueError
     except ValueError:
-        await message.answer("Напиши сумму больше нуля, например: 20000")
+        await message.answer("Напиши сумму больше нуля, например: 20000", reply_markup=cancel_action_keyboard())
         return
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)
@@ -55,3 +55,4 @@ async def disable_living_minimum(callback: CallbackQuery) -> None:
         await living_service.disable_living_minimum(session, user.id)
     await callback.message.answer("Минимум на жизнь отключён.", reply_markup=main_menu_keyboard())
     await callback.answer()
+

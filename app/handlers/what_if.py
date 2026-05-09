@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message
 from app.config import get_settings
 from app.database import SessionLocal
 from app.formatters import format_purchase_impact
-from app.keyboards import main_menu_keyboard, purchase_impact_keyboard
+from app.keyboards import cancel_action_keyboard, main_menu_keyboard, purchase_impact_keyboard
 from app.services import what_if as what_if_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import WhatIfPurchaseStates
@@ -23,13 +23,13 @@ router = Router()
 @router.message(F.text == BTN_WHAT_IF_BUY)
 async def what_if_start(message: Message, state: FSMContext) -> None:
     await state.set_state(WhatIfPurchaseStates.amount)
-    await message.answer("Какую сумму планируешь потратить?\nНапиши сумму в рублях, например: 5000")
+    await message.answer("Какую сумму планируешь потратить?\nНапиши сумму в рублях, например: 5000", reply_markup=cancel_action_keyboard())
 
 
 @router.callback_query(F.data == "what_if:again")
 async def what_if_again(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(WhatIfPurchaseStates.amount)
-    await callback.message.answer("Какую сумму планируешь потратить?\nНапиши сумму в рублях, например: 5000")
+    await callback.message.answer("Какую сумму планируешь потратить?\nНапиши сумму в рублях, например: 5000", reply_markup=cancel_action_keyboard())
     await callback.answer()
 
 
@@ -58,7 +58,7 @@ async def what_if_amount(message: Message, state: FSMContext) -> None:
         if amount <= 0:
             raise ValueError
     except ValueError:
-        await message.answer("Не смог разобрать сумму. Напиши, например: 5000, 5 000, 5к или 5 000 ₽")
+        await message.answer("Не смог разобрать сумму. Напиши, например: 5000, 5 000, 5к или 5 000 ₽", reply_markup=cancel_action_keyboard())
         return
 
     async with SessionLocal() as session:
@@ -68,3 +68,4 @@ async def what_if_amount(message: Message, state: FSMContext) -> None:
     await state.clear()
     keyboard = purchase_impact_keyboard(summary.get("recommendation_type", "better_not")) if summary.get("can_calculate") else main_menu_keyboard()
     await message.answer(format_purchase_impact(summary), reply_markup=keyboard)
+

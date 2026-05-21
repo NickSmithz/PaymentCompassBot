@@ -6,6 +6,8 @@ from app.calculations import (
     calculate_income_allocation,
     calculate_purchase_impact,
     calculate_reserved_adjustment,
+    calculate_reserved_balance,
+    calculate_reserve_to_create,
 )
 
 
@@ -173,3 +175,112 @@ def test_reserved_adjustment_decrease():
 def test_reserved_adjustment_unchanged():
     result = calculate_reserved_adjustment(current_reserved=7000, new_reserved=7000)
     assert result == {"delta": 0, "transaction_type": "none", "amount": 0}
+
+def test_allocation_uses_existing_reserved_amount_from_previous_income():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(2, "Второй доход", 25000, today),
+        [obligation(1, "Кредитка ТБанк", 1500, today + timedelta(days=5), reserved=740)],
+        [],
+        today,
+    )
+    assert len(result.items) == 1
+    assert result.items[0].remaining_amount == 760 * 100
+    assert result.items[0].recommended_reserve <= 760 * 100
+    assert result.items[0].recommended_reserve != 1500 * 100
+
+
+def test_allocation_skips_obligation_fully_covered_by_reserve():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(2, "Второй доход", 25000, today),
+        [obligation(1, "Манимэн", 5600, today + timedelta(days=5), reserved=5600)],
+        [],
+        today,
+    )
+    assert result.items == []
+    assert result.total_to_reserve == 0
+    assert result.safe_to_spend == 25000 * 100
+
+
+def test_allocation_uses_existing_paid_amount_for_current_period():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(2, "Второй доход", 25000, today),
+        [obligation(1, "Частично оплачен", 7500, today + timedelta(days=5), reserved=2913, paid=1500)],
+        [],
+        today,
+    )
+    assert len(result.items) == 1
+    assert result.items[0].remaining_amount == 3087 * 100
+    assert result.items[0].recommended_reserve <= 3087 * 100
+
+
+def test_reserved_balance_release_decreases_reserve():
+    reserved = calculate_reserved_balance(
+        [
+            {"transaction_type": "reserve", "amount": 5000},
+            {"transaction_type": "release", "amount": 2000},
+        ]
+    )
+    assert reserved == 3000
+
+
+def test_second_income_reserves_only_remaining_after_first_income():
+    today = date(2026, 5, 8)
+    first = calculate_income_allocation(
+        income(1, "Первый доход", 30000, today),
+        [obligation(1, "Кредитка ТБанк", 1500, today + timedelta(days=10))],
+        [income(2, "Второй доход", 25000, today + timedelta(days=5), "expected")],
+        today,
+    )
+    first_reserved = first.items[0].recommended_reserve
+    assert first_reserved > 0
+
+    second = calculate_income_allocation(
+        income(2, "Второй доход", 25000, today + timedelta(days=5)),
+        [
+            ObligationCalculationDTO(
+                id=1,
+                title="Кредитка ТБанк",
+                type="credit",
+                monthly_payment_amount=1500 * 100,
+                next_payment_date=today + timedelta(days=10),
+                priority=3,
+                reserved_amount=first_reserved,
+                paid_amount=0,
+                is_recurring=True,
+            )
+        ],
+        [],
+        today,
+    )
+    assert second.items[0].recommended_reserve <= 1500 * 100 - first_reserved
+
+def test_reserve_to_create_is_capped_by_current_remaining():
+    assert calculate_reserve_to_create(recommended_reserve=1500 * 100, current_remaining=760 * 100) == 760 * 100
+    assert calculate_reserve_to_create(recommended_reserve=1500 * 100, current_remaining=0) == 0
+
+
+def test_recommended_reserve_is_not_more_than_current_income_remaining():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Доход", 5000, today),
+        [obligation(1, "Большой платёж", 12000, today + timedelta(days=5))],
+        [],
+        today,
+    )
+    assert result.total_to_reserve == 5000 * 100
+    assert result.items[0].recommended_reserve == 5000 * 100
+
+
+def test_future_income_after_due_date_is_not_used_for_payment():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Аванс", 10000, today),
+        [obligation(1, "Платёж", 20000, today + timedelta(days=5))],
+        [income(2, "Зарплата", 30000, today + timedelta(days=10), "expected")],
+        today,
+    )
+    assert result.total_to_reserve == 10000 * 100
+    assert result.items[0].recommended_reserve == 10000 * 100

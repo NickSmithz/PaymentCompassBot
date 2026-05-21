@@ -1,0 +1,216 @@
+import asyncio
+from datetime import date, timedelta
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.models import Base, Income, Obligation, ReserveTransaction, User
+from app.repositories import reserves as reserves_repo
+from app.services import allocation as allocation_service
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+async def make_session_factory():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    return engine, async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def create_user(session, telegram_id: int = 1001) -> User:
+    user = User(telegram_id=telegram_id, username="test", first_name="Test")
+    session.add(user)
+    await session.flush()
+    return user
+
+
+async def create_obligation(session, user_id: int, amount: int, due: date, title: str = "Платёж") -> Obligation:
+    obligation = Obligation(
+        user_id=user_id,
+        title=title,
+        type="credit",
+        monthly_payment_amount=amount,
+        next_payment_date=due,
+        payment_day=due.day,
+        priority=3,
+        is_active=True,
+        is_recurring=True,
+    )
+    session.add(obligation)
+    await session.flush()
+    return obligation
+
+
+async def create_income(session, user_id: int, amount: int, day: date, title: str = "Доход") -> Income:
+    income = Income(user_id=user_id, title=title, amount=amount, income_date=day, status="received")
+    session.add(income)
+    await session.flush()
+    return income
+
+
+async def reserve_count(session) -> int:
+    return await session.scalar(select(func.count(ReserveTransaction.id))) or 0
+
+
+def test_process_received_income_creates_readable_auto_reserves():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date.today()
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(session, user.id, 5600 * 100, today + timedelta(days=5), "Манимэн")
+                income = await create_income(session, user.id, 30000 * 100, today, "Юнона")
+                await session.commit()
+
+                await allocation_service.process_received_income(session, user.id, income.id, today)
+
+                reserved = await reserves_repo.sum_reserved_for_obligation(session, user.id, obligation.id)
+                assert reserved == 5600 * 100
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_second_income_does_not_over_reserve_closed_obligation():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date.today()
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(session, user.id, 5600 * 100, today + timedelta(days=5), "Манимэн")
+                first_income = await create_income(session, user.id, 30000 * 100, today, "Юнона")
+                await session.commit()
+                await allocation_service.process_received_income(session, user.id, first_income.id, today)
+
+                second_income = await create_income(session, user.id, 25000 * 100, today + timedelta(days=1), "Аксенова")
+                await session.commit()
+                result = await allocation_service.process_received_income(session, user.id, second_income.id, today)
+
+                reserved = await reserves_repo.sum_reserved_for_obligation(session, user.id, obligation.id)
+                assert reserved == 5600 * 100
+                assert all(item.obligation_id != obligation.id for item in result.items)
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_second_income_reserves_only_remaining_amount():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date.today()
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(session, user.id, 1500 * 100, today + timedelta(days=5), "Кредитка")
+                first_income = await create_income(session, user.id, 10000 * 100, today, "Первый доход")
+                second_income = await create_income(session, user.id, 25000 * 100, today + timedelta(days=1), "Второй доход")
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=obligation.id,
+                    income_id=first_income.id,
+                    amount=740 * 100,
+                    transaction_type="reserve",
+                    source="auto_plan",
+                    comment="Автоматическое резервирование с дохода",
+                )
+                await session.commit()
+
+                result = await allocation_service.process_received_income(session, user.id, second_income.id, today)
+
+                reserved = await reserves_repo.sum_reserved_for_obligation(session, user.id, obligation.id)
+                assert reserved <= 1500 * 100
+                new_amount = sum(item.recommended_reserve for item in result.items if item.obligation_id == obligation.id)
+                assert new_amount <= 760 * 100
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_recalculate_last_income_does_not_create_reserve_transactions():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date.today()
+            async with Session() as session:
+                user = await create_user(session)
+                await create_obligation(session, user.id, 5600 * 100, today + timedelta(days=5), "Манимэн")
+                await create_income(session, user.id, 30000 * 100, today, "Юнона")
+                await session.commit()
+
+                before = await reserve_count(session)
+                await allocation_service.recalculate_last_income(session, user.id, today)
+                await allocation_service.recalculate_last_income(session, user.id, today)
+                after = await reserve_count(session)
+
+                assert before == after == 0
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_has_auto_reserves_false_without_obligation_id():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date.today()
+            async with Session() as session:
+                user = await create_user(session)
+                income = await create_income(session, user.id, 30000 * 100, today, "Юнона")
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=None,
+                    income_id=income.id,
+                    amount=1000 * 100,
+                    transaction_type="reserve",
+                    source="auto_plan",
+                    comment="Автоматическое резервирование с дохода",
+                )
+                await session.commit()
+
+                assert not await reserves_repo.has_auto_reserves_for_income(session, user.id, income.id)
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_release_auto_reserves_for_income_cancels_income_plan():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date.today()
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(session, user.id, 5600 * 100, today + timedelta(days=5), "Манимэн")
+                income = await create_income(session, user.id, 30000 * 100, today, "Юнона")
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=obligation.id,
+                    income_id=income.id,
+                    amount=5600 * 100,
+                    transaction_type="reserve",
+                    source="auto_plan",
+                    comment="Автоматическое резервирование с дохода",
+                )
+                await session.commit()
+
+                await allocation_service.release_auto_reserves_for_income(session, user.id, income.id)
+
+                reserved = await reserves_repo.sum_reserved_for_obligation(session, user.id, obligation.id)
+                assert reserved == 0
+        finally:
+            await engine.dispose()
+
+    run(scenario())

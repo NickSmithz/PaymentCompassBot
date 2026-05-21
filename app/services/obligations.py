@@ -2,7 +2,7 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.calculations import calculate_reserved_adjustment
+from app.calculations import ObligationCalculationDTO, calculate_remaining_amount, calculate_reserved_adjustment
 from app.repositories import obligations as obligations_repo
 from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
@@ -26,8 +26,10 @@ async def create_obligation(session: AsyncSession, user_id: int, data: dict):
             income_id=None,
             amount=initial_reserved,
             transaction_type="manual_adjustment",
-            comment="Начальный резерв при создании платежа",
+            source="manual",
+            comment="Начальная сумма «Уже отложено» при создании платежа",
         )
+        await session.commit()
     return obligation
 
 
@@ -61,9 +63,23 @@ async def get_upcoming_obligations_summary(session: AsyncSession, user_id: int, 
     obligations = await obligations_repo.list_active_by_user(session, user_id)
     items = []
     for obligation in obligations:
-        reserved = await reserves_repo.sum_reserved_for_obligation(session, user_id, obligation.id)
+        raw_reserved = await reserves_repo.sum_reserved_for_obligation(session, user_id, obligation.id)
         paid = await payments_repo.sum_paid_for_obligation_period(session, obligation.id, None, obligation.next_payment_date)
-        remaining = max(0, obligation.monthly_payment_amount - reserved - paid)
+        max_allowed_reserved = max(0, obligation.monthly_payment_amount - paid)
+        reserved = min(raw_reserved, max_allowed_reserved)
+        remaining = calculate_remaining_amount(
+            ObligationCalculationDTO(
+                id=obligation.id,
+                title=obligation.title,
+                type=obligation.type,
+                monthly_payment_amount=obligation.monthly_payment_amount,
+                next_payment_date=obligation.next_payment_date,
+                priority=obligation.priority,
+                reserved_amount=reserved,
+                paid_amount=paid,
+                is_recurring=obligation.is_recurring,
+            )
+        )
         items.append(
             {
                 "id": obligation.id,
@@ -149,8 +165,10 @@ async def update_obligation_reserved_amount(
             income_id=None,
             amount=amount,
             transaction_type="manual_adjustment",
+            source="manual",
             comment="Ручное увеличение суммы «Уже отложено»",
         )
+        await session.commit()
     elif transaction_type == "release":
         await reserves_repo.create(
             session,
@@ -159,8 +177,10 @@ async def update_obligation_reserved_amount(
             income_id=None,
             amount=amount,
             transaction_type="release",
+            source="manual",
             comment="Ручное уменьшение суммы «Уже отложено»",
         )
+        await session.commit()
 
     from app.services import allocation as allocation_service
 

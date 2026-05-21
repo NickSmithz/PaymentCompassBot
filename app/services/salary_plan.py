@@ -30,16 +30,16 @@ async def get_salary_plan(session: AsyncSession, user_id: int, today: date):
 
     next_income = future_incomes[0]
     allocation = await allocation_service.recalculate_last_income(session, user_id, today)
-    living = await living_service.get_living_minimum_settings(session, user_id)
+    living = await living_service.preview_living_minimum_settings(session, user_id)
     days = max(1, (next_income.income_date - today).days)
     safe_to_spend = allocation.safe_to_spend if allocation else 0
     daily_limit = floor(safe_to_spend / days)
-    living_daily = floor(living.amount / days) if living.is_enabled else 0
-    living_gap = max(0, living.amount - safe_to_spend) if living.is_enabled else 0
+    living_daily = floor(living["amount"] / days) if living["is_enabled"] else 0
+    living_gap = max(0, living["amount"] - safe_to_spend) if living["is_enabled"] else 0
 
     if safe_to_spend <= 0:
         status = "danger"
-    elif living.is_enabled and safe_to_spend < living.amount:
+    elif living["is_enabled"] and safe_to_spend < living["amount"]:
         status = "attention"
     else:
         status = "good"
@@ -60,8 +60,8 @@ async def get_salary_plan(session: AsyncSession, user_id: int, today: date):
         "safe_to_spend": safe_to_spend,
         "days_until_next_income": days,
         "daily_limit": daily_limit,
-        "living_minimum_enabled": living.is_enabled,
-        "living_minimum_amount": living.amount,
+        "living_minimum_enabled": living["is_enabled"],
+        "living_minimum_amount": living["amount"],
         "living_minimum_daily": living_daily,
         "living_minimum_gap": living_gap,
         "status": status,

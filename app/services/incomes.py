@@ -41,10 +41,18 @@ async def get_last_received_income(session: AsyncSession, user_id: int, days: in
 
 
 async def update_income(session: AsyncSession, user_id: int, income_id: int, data: dict):
+    from app.services import allocation as allocation_service
+
     income = await incomes_repo.get_by_id(session, user_id, income_id)
     if income is None:
         return None
-    return await incomes_repo.update(session, income, data)
+    should_reprocess = income.status == "received" and any(key in data for key in {"amount", "income_date"})
+    if should_reprocess:
+        await allocation_service.release_auto_reserves_for_income(session, user_id, income.id)
+    income = await incomes_repo.update(session, income, data)
+    if should_reprocess:
+        await allocation_service.process_received_income(session, user_id, income.id, date.today())
+    return income
 
 
 async def update_income_status(session: AsyncSession, user_id: int, income_id: int, new_status: str, today: date):
@@ -81,8 +89,12 @@ async def update_income_status(session: AsyncSession, user_id: int, income_id: i
 
 
 async def delete_income(session: AsyncSession, user_id: int, income_id: int):
+    from app.services import allocation as allocation_service
+
     income = await incomes_repo.get_by_id(session, user_id, income_id)
     if income is None:
         return False
+    if income.status == "received":
+        await allocation_service.release_reserves_for_income(session, user_id, income.id)
     await incomes_repo.delete(session, income)
     return True

@@ -15,8 +15,8 @@ async def start_handler(message: Message) -> None:
     async with SessionLocal() as session:
         await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)
     text = (
-        "Привет! Я АнтиПросрочка Bot. Помогу понять, сколько денег нужно отложить с каждого дохода, "
-        "чтобы не пропустить платежи по кредитам, рассрочкам и обязательным платежам.\n\n"
+        "Привет! Я Платёжный Компас. Помогу понять, сколько денег нужно отложить с каждого дохода, "
+        "чтобы вовремя закрывать кредиты, рассрочки и обязательные платежи.\n\n"
         "Чтобы начать:\n"
         "1. Добавь свои кредиты и обязательные платежи.\n"
         "2. Добавь ожидаемые доходы.\n"

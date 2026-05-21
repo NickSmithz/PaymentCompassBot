@@ -20,13 +20,13 @@ async def get_financial_status(session: AsyncSession, user_id: int, today: date)
         return {"has_income": False, "recommendations": ["Добавить доход со статусом «Уже пришёл»."]}
 
     allocation = await allocation_service.recalculate_last_income(session, user_id, today)
-    living = await living_service.get_living_minimum_settings(session, user_id)
+    living = await living_service.preview_living_minimum_settings(session, user_id)
     obligations_summary = await obligation_service.get_upcoming_obligations_summary(session, user_id, today)
     nearest_obligation = obligations_summary["items"][0] if obligations_summary["items"] else None
     future_incomes = await incomes_repo.list_future_by_user(session, user_id, today)
     next_income = future_incomes[0] if future_incomes else None
 
-    living_gap = max(0, living.amount - allocation.safe_to_spend) if living.is_enabled else 0
+    living_gap = max(0, living["amount"] - allocation.safe_to_spend) if living["is_enabled"] else 0
     if allocation.overall_risk == "high":
         overall_status = "danger"
     elif living_gap > 0 or allocation.overall_risk == "medium":
@@ -37,7 +37,7 @@ async def get_financial_status(session: AsyncSession, user_id: int, today: date)
     recommendations = []
     if allocation.total_to_reserve > 0:
         recommendations.append("Отложить деньги на ближайшие платежи.")
-    if living.is_enabled:
+    if living["is_enabled"]:
         recommendations.append("Оставить минимум на жизнь до следующего дохода.")
     if living_gap > 0 and allocation.actual_savings_amount > 0:
         recommendations.append("Временно уменьшить копилку, если не хватает на минимум.")
@@ -57,8 +57,8 @@ async def get_financial_status(session: AsyncSession, user_id: int, today: date)
         "total_to_reserve": allocation.total_to_reserve,
         "savings_amount": allocation.actual_savings_amount,
         "savings_enabled": allocation.savings_enabled,
-        "living_minimum_enabled": living.is_enabled,
-        "living_minimum_amount": living.amount,
+        "living_minimum_enabled": living["is_enabled"],
+        "living_minimum_amount": living["amount"],
         "living_minimum_gap": living_gap,
         "overall_risk": allocation.overall_risk,
         "overall_status": overall_status,

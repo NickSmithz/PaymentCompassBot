@@ -30,6 +30,8 @@ from app.keyboards import (
     obligation_status_keyboard,
     obligations_inline_keyboard,
 )
+from app.repositories import payments as payments_repo
+from app.repositories import reserves as reserves_repo
 from app.services import allocation as allocation_service
 from app.services import incomes as income_service
 from app.services import obligations as obligation_service
@@ -364,6 +366,77 @@ async def edit_obligation_value(message: Message, state: FSMContext) -> None:
         await allocation_service.recalculate_user_plan(session, user.id, _today(user.timezone))
     await state.clear()
     await message.answer("Платёж обновлён. Рекомендации пересчитаны.", reply_markup=main_menu_keyboard())
+
+
+@router.message(Command("debug_reserves"))
+async def debug_reserves(message: Message) -> None:
+    async with SessionLocal() as session:
+        user = await get_or_create_user_from_telegram(
+            session,
+            message.from_user.id,
+            message.from_user.username,
+            message.from_user.first_name,
+        )
+        transactions = await reserves_repo.list_by_user(session, user.id, limit=20)
+        obligations = await obligation_service.list_obligations(session, user.id)
+        incomes = await income_service.list_incomes(session, user.id)
+
+        lines = ["🧪 Debug reserves", "", "Последние reserve_transactions:"]
+        if not transactions:
+            lines.append("Пока нет reserve_transactions.")
+        for index, tx in enumerate(transactions, 1):
+            lines.extend(
+                [
+                    f"{index}. id={tx.id}",
+                    f"income_id={tx.income_id}",
+                    f"obligation_id={tx.obligation_id}",
+                    f"transaction_type={tx.transaction_type}",
+                    f"source={tx.source}",
+                    f"amount={format_money(tx.amount)}",
+                    f"comment={tx.comment or '-'}",
+                    "",
+                ]
+            )
+
+        lines.extend(["", "Агрегация по платежам:"])
+        if not obligations:
+            lines.append("Платежей нет.")
+        for obligation in obligations:
+            raw_reserved = await reserves_repo.sum_reserved_for_obligation(session, user.id, obligation.id)
+            paid = await payments_repo.sum_paid_for_obligation_period(
+                session,
+                obligation.id,
+                None,
+                obligation.next_payment_date,
+            )
+            display_reserved = min(raw_reserved, max(0, obligation.monthly_payment_amount - paid))
+            remaining = max(0, obligation.monthly_payment_amount - display_reserved - paid)
+            lines.extend(
+                [
+                    f"{obligation.title}",
+                    f"required={format_money(obligation.monthly_payment_amount)}",
+                    f"reserved_sum={format_money(raw_reserved)}",
+                    f"paid={format_money(paid)}",
+                    f"remaining={format_money(remaining)}",
+                    "",
+                ]
+            )
+
+        lines.extend(["", "Агрегация по доходам:"])
+        if not incomes:
+            lines.append("Доходов нет.")
+        for income in incomes:
+            reserved = await reserves_repo.sum_auto_reserved_for_income(session, user.id, income.id)
+            lines.extend(
+                [
+                    f"{income.title}",
+                    f"income_id={income.id}",
+                    f"auto_plan_reserved_sum={format_money(reserved)}",
+                    "",
+                ]
+            )
+
+    await message.answer("\n".join(lines).strip(), reply_markup=main_menu_keyboard())
 
 
 @router.message()

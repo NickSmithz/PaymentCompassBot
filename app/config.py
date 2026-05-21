@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     bot_token: str = ""
-    database_url: str = "sqlite+aiosqlite:///./anti_prosrochka.db"
+    database_url: str = "sqlite+aiosqlite:///./payment_compass.db"
     timezone: str = "Europe/Moscow"
     reminders_enabled: bool = True
 

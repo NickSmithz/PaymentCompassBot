@@ -17,7 +17,7 @@ async def simulate_purchase(session: AsyncSession, user_id: int, purchase_amount
 
     allocation = await allocation_service.recalculate_last_income(session, user_id, today)
     salary_plan = await salary_plan_service.get_salary_plan(session, user_id, today)
-    living = await living_service.get_living_minimum_settings(session, user_id)
+    living = await living_service.preview_living_minimum_settings(session, user_id)
     obligations_summary = await obligation_service.get_upcoming_obligations_summary(session, user_id, today)
     nearest = obligations_summary["items"][0] if obligations_summary["items"] else None
 
@@ -26,8 +26,8 @@ async def simulate_purchase(session: AsyncSession, user_id: int, purchase_amount
         purchase_amount=purchase_amount,
         safe_to_spend=allocation.safe_to_spend,
         days_until_next_income=days,
-        living_minimum_enabled=living.is_enabled,
-        living_minimum_amount=living.amount,
+        living_minimum_enabled=living["is_enabled"],
+        living_minimum_amount=living["amount"],
         overall_risk=allocation.overall_risk,
     )
 
@@ -68,8 +68,8 @@ async def simulate_purchase(session: AsyncSession, user_id: int, purchase_amount
         "daily_limit_before": impact.daily_limit_before,
         "daily_limit_after": impact.daily_limit_after,
         "daily_limit_delta": impact.daily_limit_delta,
-        "living_minimum_enabled": living.is_enabled,
-        "living_minimum_amount": living.amount if living.is_enabled else 0,
+        "living_minimum_enabled": living["is_enabled"],
+        "living_minimum_amount": living["amount"] if living["is_enabled"] else 0,
         "living_gap_before": impact.living_gap_before,
         "living_gap_after": impact.living_gap_after,
         "overall_risk_before": allocation.overall_risk,

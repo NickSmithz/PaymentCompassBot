@@ -7,6 +7,17 @@ async def get_living_minimum_settings(session: AsyncSession, user_id: int):
     return await living_repo.get_or_create_settings(session, user_id)
 
 
+async def preview_living_minimum_settings(session: AsyncSession, user_id: int) -> dict:
+    settings = await living_repo.get_settings(session, user_id)
+    if settings is None:
+        return {"is_enabled": False, "amount": 0, "period_type": "until_next_income"}
+    return {
+        "is_enabled": settings.is_enabled,
+        "amount": settings.amount,
+        "period_type": settings.period_type,
+    }
+
+
 async def enable_living_minimum(session: AsyncSession, user_id: int, amount: int):
     return await living_repo.update_settings(
         session,

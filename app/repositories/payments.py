@@ -19,9 +19,12 @@ async def sum_paid_for_obligation(session: AsyncSession, obligation_id: int) -> 
 
 
 async def sum_paid_for_obligation_period(session: AsyncSession, obligation_id: int, start: date | None, end: date) -> int:
-    stmt = select(func.coalesce(func.sum(PaymentRecord.amount), 0)).where(PaymentRecord.obligation_id == obligation_id, PaymentRecord.paid_at <= end)
-    if start:
-        stmt = stmt.where(PaymentRecord.paid_at >= start)
+    period_start = start or date(end.year, end.month, 1)
+    stmt = select(func.coalesce(func.sum(PaymentRecord.amount), 0)).where(
+        PaymentRecord.obligation_id == obligation_id,
+        PaymentRecord.paid_at >= period_start,
+        PaymentRecord.paid_at <= end,
+    )
     return await session.scalar(stmt) or 0
 
 

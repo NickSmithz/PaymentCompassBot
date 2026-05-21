@@ -61,6 +61,36 @@ async def process_savings_for_income(
     }
 
 
+async def preview_savings_for_income(
+    session: AsyncSession,
+    user_id: int,
+    income_id: int,
+    income_amount: int,
+    available_after_payments: int,
+):
+    settings = await savings_repo.get_settings(session, user_id)
+    if settings is None or not settings.is_enabled:
+        return {
+            "is_enabled": False,
+            "percent": settings.percent if settings else 10,
+            "desired_savings": 0,
+            "actual_savings": 0,
+        }
+
+    desired_savings = ceil(income_amount * settings.percent / 100)
+    existing = await savings_repo.list_by_income(session, user_id, income_id)
+    saved = sum(tx.amount for tx in existing if tx.transaction_type == "save")
+    released = sum(tx.amount for tx in existing if tx.transaction_type == "release")
+    existing_amount = max(0, saved - released)
+    actual_savings = existing_amount or min(desired_savings, max(0, available_after_payments))
+    return {
+        "is_enabled": True,
+        "percent": settings.percent,
+        "desired_savings": desired_savings,
+        "actual_savings": actual_savings,
+    }
+
+
 async def release_savings_for_income(session: AsyncSession, user_id: int, income_id: int):
     return await savings_repo.release_by_income(session, user_id, income_id)
 

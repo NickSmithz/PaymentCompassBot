@@ -3,5 +3,6 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-anti_prosrochka.db
+payment_compass.db
 *.sqlite
+*.db

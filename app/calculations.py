@@ -75,8 +75,24 @@ def calculate_remaining_amount(obligation: ObligationCalculationDTO) -> int:
     return max(0, obligation.monthly_payment_amount - obligation.reserved_amount - obligation.paid_amount)
 
 
+def calculate_reserved_balance(transactions) -> int:
+    total = 0
+    for tx in transactions:
+        transaction_type = tx.get("transaction_type") if isinstance(tx, dict) else tx.transaction_type
+        amount = tx.get("amount") if isinstance(tx, dict) else tx.amount
+        if transaction_type in {"reserve", "manual_adjustment"}:
+            total += amount
+        elif transaction_type == "release":
+            total -= amount
+    return max(0, total)
+
+
 def calculate_safe_to_spend(income_amount: int, total_to_reserve: int) -> int:
     return max(0, income_amount - total_to_reserve)
+
+
+def calculate_reserve_to_create(recommended_reserve: int, current_remaining: int) -> int:
+    return max(0, min(recommended_reserve, current_remaining))
 
 
 def calculate_reserved_adjustment(current_reserved: int, new_reserved: int) -> dict:
@@ -154,12 +170,14 @@ def calculate_income_allocation(
 
     for obligation in sort_obligations_by_priority(obligations, today):
         remaining_amount = calculate_remaining_amount(obligation)
+        if remaining_amount <= 0:
+            continue
         future_sum = _future_income_sum(future_incomes, current_income, obligation.next_payment_date)
         total_available_until_due = current_income_remaining + future_sum
         recommended_reserve = 0
 
-        # Главная логика MVP: близкие и просроченные платежи закрываем максимально,
-        # остальные делим между текущим и будущими доходами до даты платежа.
+        # Core MVP allocation: urgent and overdue payments are covered first;
+        # the rest is split between current and future incomes before the due date.
         if remaining_amount > 0 and current_income_remaining > 0:
             urgent = obligation.next_payment_date < today or obligation.next_payment_date <= today + timedelta(days=3)
             if future_sum <= 0 or urgent:

@@ -79,6 +79,7 @@ class ReserveTransaction(Base):
     income_id: Mapped[int | None] = mapped_column(ForeignKey("incomes.id"), nullable=True, index=True)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     transaction_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True, default="auto_plan", server_default="auto_plan")
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

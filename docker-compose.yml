@@ -1,8 +1,9 @@
 services:
   bot:
+    container_name: payment_compass_bot
     build: .
     env_file:
       - .env
     volumes:
-      - ./anti_prosrochka.db:/app/anti_prosrochka.db
+      - ./payment_compass.db:/app/payment_compass.db
     restart: unless-stopped

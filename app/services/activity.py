@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.repositories import users as users_repo
 
 RETURN_THRESHOLD = timedelta(days=14)
@@ -28,6 +29,12 @@ async def should_show_im_back(session: AsyncSession, user_id: int, now: datetime
         return False
     previous_activity = _align_datetime(previous_activity, now)
     return now - previous_activity >= RETURN_THRESHOLD
+
+
+async def should_show_im_back_button(session: AsyncSession, user_id: int, now: datetime) -> bool:
+    if get_settings().im_back_always_visible:
+        return True
+    return await should_show_im_back(session, user_id, now)
 
 
 async def should_show_return_prompt(session: AsyncSession, user_id: int, now: datetime) -> bool:

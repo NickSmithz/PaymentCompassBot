@@ -50,11 +50,12 @@ async def help_handler(message: Message) -> None:
 
 async def _get_return_menu_state(session, user) -> tuple[bool, bool]:
     now = datetime.now(ZoneInfo(user.timezone or get_settings().timezone))
-    show_im_back = await activity_service.should_show_im_back(session, user.id, now)
+    show_im_back_by_absence = await activity_service.should_show_im_back(session, user.id, now)
+    show_im_back = await activity_service.should_show_im_back_button(session, user.id, now)
     show_return_prompt = await activity_service.should_show_return_prompt(session, user.id, now)
     if show_return_prompt:
         await activity_service.mark_return_prompt_shown(session, user.id, now)
-    if not show_im_back:
+    if not show_im_back_by_absence:
         await activity_service.update_user_activity(session, user.id, now)
     return show_im_back, show_return_prompt
 

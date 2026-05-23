@@ -15,6 +15,14 @@ SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        user_columns = await conn.execute(text("PRAGMA table_info(users)"))
+        user_column_names = {row[1] for row in user_columns.fetchall()}
+        if "last_activity_at" not in user_column_names:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN last_activity_at DATETIME"))
+        if "last_return_prompt_at" not in user_column_names:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN last_return_prompt_at DATETIME"))
+
         columns = await conn.execute(text("PRAGMA table_info(reserve_transactions)"))
         column_names = {row[1] for row in columns.fetchall()}
         if "source" not in column_names:

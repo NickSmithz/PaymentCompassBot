@@ -1,5 +1,6 @@
 BTN_FINANCIAL_STATUS = "📍 Финансовый статус"
 BTN_SAFE_TO_SPEND = "💰 Сколько можно тратить?"
+BTN_IM_BACK = "🔄 Я вернулся"
 BTN_WHAT_IF_BUY = "🛒 Что если купить?"
 BTN_SALARY_PLAN = "📆 План до зарплаты"
 BTN_LIVING_MINIMUM = "🛟 Минимум на жизнь"
@@ -29,47 +30,72 @@ RISK_HIGH = "🔴 высокий"
 
 UNKNOWN_COMMAND_TEXT = "Не понял команду. Вернись в меню или напиши /help."
 
-MAIN_MENU_BUTTONS = {
-    BTN_FINANCIAL_STATUS,
+ACTIVE_MAIN_MENU_BUTTONS = {
     BTN_SAFE_TO_SPEND,
-    BTN_WHAT_IF_BUY,
-    BTN_SALARY_PLAN,
-    BTN_LIVING_MINIMUM,
     BTN_ADD_INCOME,
     BTN_MY_INCOMES,
     BTN_ADD_OBLIGATION,
     BTN_UPCOMING_PAYMENTS,
-    BTN_SAVINGS,
     BTN_MARK_PAYMENT,
     BTN_PROGRESS,
     BTN_EDIT,
     BTN_SETTINGS,
 }
 
+FROZEN_FEATURE_BUTTONS = {
+    BTN_FINANCIAL_STATUS,
+    BTN_WHAT_IF_BUY,
+    BTN_SALARY_PLAN,
+    BTN_LIVING_MINIMUM,
+    BTN_SAVINGS,
+}
+
+MAIN_MENU_BUTTONS = ACTIVE_MAIN_MENU_BUTTONS
+
 CONTROL_BUTTONS = {
     BTN_CANCEL_ACTION,
     BTN_MENU,
 }
 
-NAVIGATION_BUTTONS = MAIN_MENU_BUTTONS | CONTROL_BUTTONS
+NAVIGATION_BUTTONS = ACTIVE_MAIN_MENU_BUTTONS | CONTROL_BUTTONS
+NAVIGATION_BUTTONS = NAVIGATION_BUTTONS | {BTN_IM_BACK}
 
-MAIN_COMMANDS = {
+CMD_IM_BACK = "/im_back"
+
+ACTIVE_COMMANDS = {
     "/start",
     "/menu",
     "/help",
-    "/status",
-    "/spend",
-    "/what_if_buy",
-    "/salary_plan",
-    "/living_minimum",
     "/add_income",
     "/incomes",
     "/add_obligation",
     "/payments",
-    "/savings",
+    "/spend",
     "/progress",
+    CMD_IM_BACK,
     "/cancel",
 }
+
+FROZEN_COMMANDS = {
+    "/status",
+    "/what_if_buy",
+    "/salary_plan",
+    "/living_minimum",
+    "/savings",
+}
+
+MAIN_COMMANDS = ACTIVE_COMMANDS
+
+FROZEN_FEATURE_MESSAGE = (
+    "Эта функция временно отключена.\n\n"
+    "Сейчас мы стабилизируем основной функционал:\n"
+    "— доходы;\n"
+    "— платежи;\n"
+    "— резервирование;\n"
+    "— ближайшие платежи;\n"
+    "— сколько можно тратить.\n\n"
+    "Она вернётся позже, когда ядро будет работать стабильно."
+)
 
 
 def is_navigation_text(text: str | None) -> bool:

@@ -2,7 +2,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.config import get_settings
-from app.handlers import common, calculations, financial_status, incomes, living_minimum, navigation, obligations, payments, progress, salary_plan, savings, settings, start, what_if
+from app.handlers import common, calculations, frozen_features, incomes, navigation, obligations, payments, progress, return_flow, settings, start
 from app.middlewares.navigation_reset import NavigationResetMiddleware
 
 
@@ -19,16 +19,19 @@ def create_dispatcher() -> Dispatcher:
     for router in (
         start.router,
         navigation.router,
-        financial_status.router,
-        what_if.router,
-        salary_plan.router,
-        obligations.router,
+        frozen_features.router,
+        return_flow.router,
+        # Временно отключено до стабилизации ядра MVP:
+        # financial_status.router,
+        # salary_plan.router,
+        # living_minimum.router,
+        # savings.router,
+        # what_if.router,
         incomes.router,
-        calculations.router,
+        obligations.router,
         payments.router,
+        calculations.router,
         progress.router,
-        savings.router,
-        living_minimum.router,
         settings.router,
         common.router,
     ):

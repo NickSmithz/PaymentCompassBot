@@ -24,6 +24,8 @@ class User(Base, TimestampMixin):
     first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
     reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_return_prompt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     obligations: Mapped[list["Obligation"]] = relationship(back_populates="user")
 

@@ -17,18 +17,15 @@ async def main() -> None:
         [
             BotCommand(command="start", description="Запустить бота"),
             BotCommand(command="menu", description="Главное меню"),
-            BotCommand(command="status", description="Финансовый статус"),
-            BotCommand(command="salary_plan", description="План до зарплаты"),
-            BotCommand(command="living_minimum", description="Минимум на жизнь"),
-            BotCommand(command="what_if_buy", description="Что если купить"),
+            BotCommand(command="help", description="Помощь"),
             BotCommand(command="add_income", description="Добавить доход"),
             BotCommand(command="incomes", description="Мои доходы"),
-            BotCommand(command="savings", description="Накопления"),
             BotCommand(command="add_obligation", description="Добавить платёж"),
-            BotCommand(command="spend", description="Сколько можно тратить"),
             BotCommand(command="payments", description="Ближайшие платежи"),
+            BotCommand(command="spend", description="Сколько можно тратить"),
             BotCommand(command="progress", description="Прогресс долгов"),
-            BotCommand(command="help", description="Помощь"),
+            BotCommand(command="im_back", description="Я вернулся"),
+            BotCommand(command="cancel", description="Отменить действие"),
         ]
     )
     scheduler = setup_scheduler(bot)

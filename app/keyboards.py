@@ -6,32 +6,27 @@ from app.texts import (
     BTN_BACK,
     BTN_CANCEL_ACTION,
     BTN_EDIT,
-    BTN_FINANCIAL_STATUS,
-    BTN_LIVING_MINIMUM,
+    BTN_IM_BACK,
     BTN_MARK_PAYMENT,
     BTN_MENU,
     BTN_MY_INCOMES,
     BTN_PROGRESS,
     BTN_SAFE_TO_SPEND,
-    BTN_SALARY_PLAN,
-    BTN_SAVINGS,
     BTN_SETTINGS,
     BTN_UPCOMING_PAYMENTS,
-    BTN_WHAT_IF_BUY,
 )
 
 
-def main_menu_keyboard() -> ReplyKeyboardMarkup:
+def main_menu_keyboard(show_im_back: bool = False) -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text=BTN_FINANCIAL_STATUS)],
-        [KeyboardButton(text=BTN_SAFE_TO_SPEND), KeyboardButton(text=BTN_WHAT_IF_BUY)],
-        [KeyboardButton(text=BTN_SALARY_PLAN), KeyboardButton(text=BTN_LIVING_MINIMUM)],
+        [KeyboardButton(text=BTN_SAFE_TO_SPEND)],
         [KeyboardButton(text=BTN_ADD_INCOME), KeyboardButton(text=BTN_MY_INCOMES)],
         [KeyboardButton(text=BTN_ADD_OBLIGATION), KeyboardButton(text=BTN_UPCOMING_PAYMENTS)],
-        [KeyboardButton(text=BTN_SAVINGS), KeyboardButton(text=BTN_MARK_PAYMENT)],
-        [KeyboardButton(text=BTN_PROGRESS), KeyboardButton(text=BTN_EDIT)],
-        [KeyboardButton(text=BTN_SETTINGS)],
+        [KeyboardButton(text=BTN_MARK_PAYMENT), KeyboardButton(text=BTN_PROGRESS)],
+        [KeyboardButton(text=BTN_EDIT), KeyboardButton(text=BTN_SETTINGS)],
     ]
+    if show_im_back:
+        rows.insert(0, [KeyboardButton(text=BTN_IM_BACK)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
 
 
@@ -209,4 +204,18 @@ def purchase_impact_keyboard(recommendation_type: str) -> InlineKeyboardMarkup:
         rows.append([("Посмотреть ближайшие платежи", "what_if:payments")])
     rows.append([(BTN_MENU, "back")])
     return _inline(rows)
+
+
+def return_preview_keyboard() -> InlineKeyboardMarkup:
+    return _inline([[("Да, обновить данные", "confirm_im_back")], [("Отмена", "cancel_im_back")]])
+
+
+def return_result_keyboard() -> InlineKeyboardMarkup:
+    return _inline(
+        [
+            [("➕ Добавить доход", "im_back:add_income")],
+            [("📅 Ближайшие платежи", "im_back:payments")],
+            [(BTN_MENU, "im_back:menu")],
+        ]
+    )
 

@@ -78,7 +78,7 @@ def test_multiple_received_incomes_today_are_summarized():
     run(scenario())
 
 
-def test_last_focus_income_has_priority_over_today_multiple_summary():
+def test_today_multiple_has_priority_over_last_focus_income():
     async def scenario():
         engine, Session = await make_session_factory()
         try:
@@ -94,16 +94,15 @@ def test_last_focus_income_has_priority_over_today_multiple_summary():
 
                 summary = await spending_service.get_spending_summary(session, user.id, today)
 
-                assert summary["type"] == "focus_income"
-                assert summary["incomes"][0]["income_id"] == yuneko.id
-                assert summary["incomes"][0]["title"] == "Юнэко"
+                assert summary["type"] == "today_multiple"
+                assert {item["income_id"] for item in summary["incomes"]} == {sport.id, yuneko.id}
         finally:
             await engine.dispose()
 
     run(scenario())
 
 
-def test_single_received_income_today_is_single_income_summary():
+def test_single_received_income_today_is_single_today_summary():
     async def scenario():
         engine, Session = await make_session_factory()
         try:
@@ -116,7 +115,7 @@ def test_single_received_income_today_is_single_income_summary():
 
                 summary = await spending_service.get_spending_summary(session, user.id, today)
 
-                assert summary["type"] == "single_income"
+                assert summary["type"] == "single_today"
                 assert summary["incomes"][0]["income_id"] == income.id
                 assert summary["total_safe_to_spend"] == 10192 * 100
         finally:
@@ -148,7 +147,32 @@ def test_invalid_focus_income_falls_back_to_today_received_incomes():
     run(scenario())
 
 
-def test_last_received_income_is_used_when_today_has_no_received_income():
+def test_focus_income_is_used_when_today_has_no_received_income():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 27)
+            async with Session() as session:
+                user = await create_user(session)
+                focus_income = await create_income(session, user.id, 25000, today - timedelta(days=5), title="Юнэко")
+                older_income = await create_income(session, user.id, 30000, today - timedelta(days=10), title="Спорт Эталон")
+                user.last_focus_income_id = focus_income.id
+                await create_auto_reserve(session, user.id, focus_income.id, 14365)
+                await create_auto_reserve(session, user.id, older_income.id, 19808)
+                await session.commit()
+
+                summary = await spending_service.get_spending_summary(session, user.id, today)
+
+                assert summary["type"] == "focus_income"
+                assert summary["incomes"][0]["income_id"] == focus_income.id
+                assert summary["total_reserved"] == 14365 * 100
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_last_received_income_is_used_when_today_has_no_received_income_and_focus_is_missing():
     async def scenario():
         engine, Session = await make_session_factory()
         try:
@@ -161,7 +185,7 @@ def test_last_received_income_is_used_when_today_has_no_received_income():
 
                 summary = await spending_service.get_spending_summary(session, user.id, today)
 
-                assert summary["type"] == "last_income"
+                assert summary["type"] == "last_received"
                 assert summary["incomes"][0]["income_id"] == old_income.id
                 assert summary["total_reserved"] == 19808 * 100
         finally:
@@ -185,6 +209,59 @@ def test_no_received_income_returns_no_income_summary():
                 assert summary["type"] == "no_income"
                 assert summary["incomes"] == []
                 assert summary["total_safe_to_spend"] == 0
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_invalid_focus_income_without_today_received_falls_back_to_last_received():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 27)
+            async with Session() as session:
+                user = await create_user(session)
+                cancelled = await create_income(
+                    session,
+                    user.id,
+                    10000,
+                    today - timedelta(days=1),
+                    status="cancelled",
+                    title="Отменённый",
+                )
+                old_income = await create_income(session, user.id, 30000, today - timedelta(days=10), title="Юнона")
+                user.last_focus_income_id = cancelled.id
+                await session.commit()
+
+                summary = await spending_service.get_spending_summary(session, user.id, today)
+
+                assert summary["type"] == "last_received"
+                assert summary["incomes"][0]["income_id"] == old_income.id
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_reserved_for_income_counts_manual_adjustment_and_release():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 27)
+            async with Session() as session:
+                user = await create_user(session)
+                income = await create_income(session, user.id, 30000, today, title="Юнона")
+                await create_auto_reserve(session, user.id, income.id, 18000)
+                await create_auto_reserve(session, user.id, income.id, 1000, transaction_type="manual_adjustment")
+                await create_auto_reserve(session, user.id, income.id, 500, transaction_type="release")
+                await session.commit()
+
+                summary = await spending_service.get_spending_summary(session, user.id, today)
+
+                assert summary["type"] == "single_today"
+                assert summary["total_reserved"] == 18500 * 100
+                assert summary["total_safe_to_spend"] == 11500 * 100
         finally:
             await engine.dispose()
 

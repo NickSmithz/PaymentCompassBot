@@ -35,7 +35,7 @@ async def list_received_by_date(session: AsyncSession, user_id: int, income_date
             Income.status == "received",
             Income.income_date == income_date,
         )
-        .order_by(Income.id.asc())
+        .order_by(Income.income_date.asc(), Income.id.asc())
     )
     return list(result)
 

@@ -86,7 +86,7 @@ def format_spending_summary(summary) -> str:
         return "\n".join(lines).strip()
 
     item = summary["incomes"][0]
-    if summary["type"] == "last_income":
+    if summary["type"] in {"last_income", "last_received"}:
         return (
             f"💰 Последний полученный доход: {item['title']} — {format_money(item['amount'])} "
             f"от {format_date(item['income_date'])}\n\n"

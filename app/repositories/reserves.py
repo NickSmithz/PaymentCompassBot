@@ -194,7 +194,32 @@ async def sum_auto_reserved_for_income(session: AsyncSession, user_id: int, inco
 
 
 async def sum_reserved_for_income(session: AsyncSession, user_id: int, income_id: int) -> int:
-    return await sum_auto_reserved_for_income(session, user_id, income_id)
+    reserve = await session.scalar(
+        select(func.coalesce(func.sum(ReserveTransaction.amount), 0)).where(
+            ReserveTransaction.user_id == user_id,
+            ReserveTransaction.income_id == income_id,
+            ReserveTransaction.transaction_type == "reserve",
+            ReserveTransaction.amount > 0,
+            _auto_plan_filter(),
+        )
+    )
+    manual_adjustment = await session.scalar(
+        select(func.coalesce(func.sum(ReserveTransaction.amount), 0)).where(
+            ReserveTransaction.user_id == user_id,
+            ReserveTransaction.income_id == income_id,
+            ReserveTransaction.transaction_type == "manual_adjustment",
+            ReserveTransaction.amount > 0,
+        )
+    )
+    release = await session.scalar(
+        select(func.coalesce(func.sum(ReserveTransaction.amount), 0)).where(
+            ReserveTransaction.user_id == user_id,
+            ReserveTransaction.income_id == income_id,
+            ReserveTransaction.transaction_type == "release",
+            ReserveTransaction.amount > 0,
+        )
+    )
+    return max(0, (reserve or 0) + (manual_adjustment or 0) - (release or 0))
 
 
 async def auto_reserved_by_obligation_for_income(

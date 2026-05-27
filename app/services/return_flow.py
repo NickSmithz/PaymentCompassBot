@@ -58,6 +58,7 @@ async def apply_return_flow(session: AsyncSession, user_id: int, today: date) ->
 
     for income in past_expected_incomes:
         income.status = "received"
+        income.received_at = None
 
     await session.commit()
     for record in payment_records_created:

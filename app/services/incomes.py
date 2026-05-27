@@ -1,13 +1,41 @@
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.repositories import incomes as incomes_repo
 from app.repositories import users as users_repo
 
 
-async def create_income(session: AsyncSession, user_id: int, data: dict):
-    return await incomes_repo.create(session, user_id, data)
+def _now() -> datetime:
+    return datetime.now(ZoneInfo(get_settings().timezone))
+
+
+async def create_income(session: AsyncSession, user_id: int, data: dict, now: datetime | None = None):
+    payload = dict(data)
+    if payload.get("status") == "received":
+        payload["received_at"] = now or _now()
+    else:
+        payload["received_at"] = None
+    return await incomes_repo.create(session, user_id, payload)
+
+
+async def create_income_from_user_input(
+    session: AsyncSession,
+    user_id: int,
+    data: dict,
+    today: date,
+    now: datetime,
+) -> dict:
+    from app.services import allocation as allocation_service
+
+    income = await create_income(session, user_id, data, now=now)
+    allocation_result = None
+    if income.status == "received":
+        allocation_result = await allocation_service.process_received_income(session, user_id, income.id, today)
+        await users_repo.update_last_focus_income_id(session, user_id, income.id)
+    return {"income": income, "allocation": allocation_result}
 
 
 async def list_incomes(session: AsyncSession, user_id: int):
@@ -57,7 +85,14 @@ async def update_income(session: AsyncSession, user_id: int, income_id: int, dat
     return income
 
 
-async def update_income_status(session: AsyncSession, user_id: int, income_id: int, new_status: str, today: date):
+async def update_income_status(
+    session: AsyncSession,
+    user_id: int,
+    income_id: int,
+    new_status: str,
+    today: date,
+    now: datetime | None = None,
+):
     from app.services import allocation as allocation_service
 
     if new_status not in {"expected", "received", "cancelled"}:
@@ -66,12 +101,17 @@ async def update_income_status(session: AsyncSession, user_id: int, income_id: i
     if income is None:
         return None
     old_status = income.status
-    income = await incomes_repo.update(session, income, {"status": new_status})
+    update_data = {"status": new_status}
+    if new_status == "received" and old_status != "received":
+        update_data["received_at"] = now or _now()
+    elif new_status != "received" and old_status == "received":
+        update_data["received_at"] = None
+    income = await incomes_repo.update(session, income, update_data)
 
     allocation_result = None
     recalculation = None
     reserves_released = False
-    if new_status == "received":
+    if new_status == "received" and old_status != "received":
         allocation_result = await allocation_service.process_received_income(session, user_id, income.id, today)
         await users_repo.update_last_focus_income_id(session, user_id, income.id)
     elif old_status == "received" and new_status in {"expected", "cancelled"}:

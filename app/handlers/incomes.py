@@ -12,9 +12,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.formatters import format_allocation_result, format_income_added, format_incomes_list
 from app.keyboards import cancel_action_keyboard, income_status_keyboard, main_menu_keyboard, today_keyboard
-from app.services import allocation as allocation_service
 from app.services import incomes as income_service
-from app.services import users as user_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import AddIncomeStates
 from app.utils import parse_date, parse_money
@@ -38,7 +36,6 @@ async def incomes_list_handler(message: Message) -> None:
 
 
 @router.message(Command("add_income"))
-@router.message(F.text == BTN_ADD_INCOME)
 @router.message(F.text == BTN_ADD_INCOME)
 async def add_income_start(message: Message, state: FSMContext) -> None:
     await state.set_state(AddIncomeStates.title)
@@ -90,11 +87,11 @@ async def add_income_finish(callback: CallbackQuery, state: FSMContext) -> None:
     data["status"] = callback.data.split(":", 1)[1]
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
-        income = await income_service.create_income(session, user.id, data)
-        if income.status == "received":
-            result = await allocation_service.process_received_income(session, user.id, income.id, parse_date("сегодня", user.timezone))
-            await user_service.update_last_focus_income_id(session, user.id, income.id)
-            text = format_allocation_result(result)
+        now = datetime.now(ZoneInfo(user.timezone or get_settings().timezone))
+        result = await income_service.create_income_from_user_input(session, user.id, data, now.date(), now)
+        income = result["income"]
+        if result["allocation"]:
+            text = format_allocation_result(result["allocation"])
         else:
             text = format_income_added(income)
     await state.clear()

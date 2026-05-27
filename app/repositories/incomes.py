@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import delete as sa_delete, func, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,45 @@ async def list_received_by_date(session: AsyncSession, user_id: int, income_date
         .order_by(Income.income_date.asc(), Income.id.asc())
     )
     return list(result)
+
+
+async def list_received_by_received_at_range(
+    session: AsyncSession,
+    user_id: int,
+    start_at: datetime,
+    end_at: datetime,
+) -> list[Income]:
+    result = await session.scalars(
+        select(Income)
+        .where(
+            Income.user_id == user_id,
+            Income.status == "received",
+            Income.received_at.is_not(None),
+            Income.received_at >= start_at,
+            Income.received_at <= end_at,
+        )
+        .order_by(Income.received_at.asc(), Income.id.asc())
+    )
+    return list(result)
+
+
+async def get_last_received_by_received_at(
+    session: AsyncSession,
+    user_id: int,
+    since: datetime | None = None,
+) -> Income | None:
+    filters = [
+        Income.user_id == user_id,
+        Income.status == "received",
+        Income.received_at.is_not(None),
+    ]
+    if since is not None:
+        filters.append(Income.received_at >= since)
+    return await session.scalar(
+        select(Income)
+        .where(*filters)
+        .order_by(Income.received_at.desc(), Income.id.desc())
+    )
 
 
 async def list_future_by_user(session: AsyncSession, user_id: int, from_date: date) -> list[Income]:
@@ -87,7 +126,10 @@ async def delete(session: AsyncSession, income: Income) -> None:
 
 
 async def reset_statuses_for_user(session: AsyncSession, user_id: int, status: str = "expected") -> int:
-    result = await session.execute(sa_update(Income).where(Income.user_id == user_id).values(status=status))
+    values = {"status": status}
+    if status != "received":
+        values["received_at"] = None
+    result = await session.execute(sa_update(Income).where(Income.user_id == user_id).values(**values))
     return result.rowcount or 0
 
 

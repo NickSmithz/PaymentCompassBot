@@ -25,6 +25,11 @@ async def init_db() -> None:
         if "last_focus_income_id" not in user_column_names:
             await conn.execute(text("ALTER TABLE users ADD COLUMN last_focus_income_id INTEGER"))
 
+        income_columns = await conn.execute(text("PRAGMA table_info(incomes)"))
+        income_column_names = {row[1] for row in income_columns.fetchall()}
+        if "received_at" not in income_column_names:
+            await conn.execute(text("ALTER TABLE incomes ADD COLUMN received_at DATETIME NULL"))
+
         columns = await conn.execute(text("PRAGMA table_info(reserve_transactions)"))
         column_names = {row[1] for row in columns.fetchall()}
         if "source" not in column_names:

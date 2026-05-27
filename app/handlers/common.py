@@ -47,6 +47,10 @@ def _today(timezone: str):
     return datetime.now(ZoneInfo(timezone or get_settings().timezone)).date()
 
 
+def _now(timezone: str):
+    return datetime.now(ZoneInfo(timezone or get_settings().timezone))
+
+
 
 @router.message(Command("cancel"))
 @router.message(F.text == BTN_CANCEL_ACTION)
@@ -154,7 +158,15 @@ async def edit_income_status(callback: CallbackQuery, state: FSMContext) -> None
     _, income_id, status = callback.data.split(":")
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
-        result = await income_service.update_income_status(session, user.id, int(income_id), status, _today(user.timezone))
+        now = _now(user.timezone)
+        result = await income_service.update_income_status(
+            session,
+            user.id,
+            int(income_id),
+            status,
+            now.date(),
+            now,
+        )
     await state.clear()
     await callback.message.answer(format_income_status_update(result), reply_markup=main_menu_keyboard())
     await callback.answer()
@@ -435,6 +447,42 @@ async def debug_reserves(message: Message) -> None:
                     "",
                 ]
             )
+
+    await message.answer("\n".join(lines).strip(), reply_markup=main_menu_keyboard())
+
+
+@router.message(Command("debug_incomes"))
+async def debug_incomes(message: Message) -> None:
+    if not get_settings().dev_mode:
+        await message.answer("Команда доступна только в режиме разработки.", reply_markup=main_menu_keyboard())
+        return
+
+    async with SessionLocal() as session:
+        user = await get_or_create_user_from_telegram(
+            session,
+            message.from_user.id,
+            message.from_user.username,
+            message.from_user.first_name,
+        )
+        incomes = await income_service.list_incomes(session, user.id)
+
+    lines = ["🧪 Debug incomes", ""]
+    if not incomes:
+        lines.append("Доходов нет.")
+    for income in incomes:
+        received_at = income.received_at.strftime("%Y-%m-%d %H:%M") if income.received_at else "NULL"
+        updated_at = income.updated_at.strftime("%Y-%m-%d %H:%M") if income.updated_at else "NULL"
+        created_at = income.created_at.strftime("%Y-%m-%d %H:%M") if income.created_at else "NULL"
+        lines.extend(
+            [
+                f"id={income.id} title={income.title} amount={format_money(income.amount)}",
+                f"income_date={income.income_date} status={income.status}",
+                f"received_at={received_at}",
+                f"updated_at={updated_at}",
+                f"created_at={created_at}",
+                "",
+            ]
+        )
 
     await message.answer("\n".join(lines).strip(), reply_markup=main_menu_keyboard())
 

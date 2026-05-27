@@ -21,6 +21,6 @@ router = Router()
 async def spend_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)
-        today = datetime.now(ZoneInfo(user.timezone or get_settings().timezone)).date()
-        summary = await spending_service.get_spending_summary(session, user.id, today)
+        now = datetime.now(ZoneInfo(user.timezone or get_settings().timezone))
+        summary = await spending_service.get_spending_summary(session, user.id, now.date(), now)
     await message.answer(format_spending_summary(summary), reply_markup=main_menu_keyboard())

@@ -64,12 +64,22 @@ def format_spending_summary(summary) -> str:
             "Добавь доход со статусом «Уже пришёл», и я рассчитаю, сколько можно тратить."
         )
 
-    if summary["type"] == "today_multiple":
-        lines = ["💰 Сколько можно тратить?", "", "Сегодня получено несколько доходов:", ""]
+    if summary["type"] in {"today_multiple", "recent_multiple", "recent_7d_multiple"}:
+        period_days = summary.get("period_days")
+        if summary["type"] == "today_multiple":
+            header = "Сегодня получено несколько доходов:"
+        elif period_days == 7:
+            header = "За последние 7 дней получено несколько доходов:"
+        else:
+            header = "За последние 3 дня получено несколько доходов:"
+        lines = ["💰 Сколько можно тратить?", "", header, ""]
         for index, item in enumerate(summary["incomes"], start=1):
+            lines.append(f"{index}. {item['title']} — {format_money(item['amount'])}")
+            lines.append(f"Дата дохода: {format_date(item['income_date'])}")
+            if item.get("received_at"):
+                lines.append(f"Отмечен полученным: {format_date(item['received_at'].date())}")
             lines.extend(
                 [
-                    f"{index}. {item['title']} — {format_money(item['amount'])}",
                     f"Зарезервировано на платежи: {format_money(item['reserved_amount'])}",
                     f"Можно тратить: {format_money(item['safe_to_spend'])}",
                     "",
@@ -77,7 +87,7 @@ def format_spending_summary(summary) -> str:
             )
         lines.extend(
             [
-                "Итого за сегодня:",
+                "Итого:",
                 f"Доходы: {format_money(summary['total_income'])}",
                 f"Зарезервировано на платежи: {format_money(summary['total_reserved'])}",
                 f"Можно тратить: {format_money(summary['total_safe_to_spend'])}",

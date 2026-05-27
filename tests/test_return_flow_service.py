@@ -217,6 +217,7 @@ def test_old_expected_income_becomes_received_without_reserves():
                 await session.refresh(income)
 
                 assert income.status == "received"
+                assert income.received_at is None
                 assert result["incomes_marked_received"] == 1
                 assert before == after == 0
                 assert result["reserve_transactions_created"] == 0

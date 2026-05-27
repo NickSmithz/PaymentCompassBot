@@ -55,6 +55,10 @@ def income_status_keyboard() -> InlineKeyboardMarkup:
     return _inline([[("Уже пришёл", "income_status:received"), ("Ожидается", "income_status:expected")]])
 
 
+def income_recurring_keyboard() -> InlineKeyboardMarkup:
+    return _inline([[("Да, каждый месяц", "income_recurring:yes")], [("Нет, разовый доход", "income_recurring:no")]])
+
+
 def today_keyboard(prefix: str = "today") -> InlineKeyboardMarkup:
     return _inline([[("Сегодня", prefix)]])
 
@@ -80,7 +84,7 @@ def obligations_inline_keyboard(obligations, prefix: str) -> InlineKeyboardMarku
 
 
 def incomes_inline_keyboard(incomes, prefix: str) -> InlineKeyboardMarkup:
-    rows = [[(income.title, f"{prefix}:{income.id}")] for income in incomes]
+    rows = [[(f"{income.title} · {income.income_date.strftime('%d.%m.%Y')}", f"{prefix}:{income.id}")] for income in incomes]
     rows.append([(BTN_BACK, "back")])
     return _inline(rows)
 

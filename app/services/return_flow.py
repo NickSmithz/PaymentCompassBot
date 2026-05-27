@@ -21,6 +21,8 @@ async def get_return_preview(session: AsyncSession, user_id: int, today: date) -
 
 
 async def apply_return_flow(session: AsyncSession, user_id: int, today: date) -> dict:
+    from app.services import income_recurrence
+
     overdue_obligations = await _list_overdue_obligations(session, user_id, today)
     past_expected_incomes = await _list_past_expected_incomes(session, user_id, today)
 
@@ -62,6 +64,7 @@ async def apply_return_flow(session: AsyncSession, user_id: int, today: date) ->
         income.received_at = None
 
     await session.commit()
+    await income_recurrence.ensure_income_instances(session, user_id, today)
     for record in payment_records_created:
         await session.refresh(record)
     for obligation in overdue_obligations:

@@ -10,6 +10,7 @@ from app.database import SessionLocal
 from app.formatters import format_help
 from app.keyboards import main_menu_keyboard
 from app.services import activity as activity_service
+from app.services import income_recurrence
 from app.services.users import get_or_create_user_from_telegram
 
 router = Router()
@@ -19,6 +20,8 @@ router = Router()
 async def start_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)
+        today = datetime.now(ZoneInfo(user.timezone or get_settings().timezone)).date()
+        await income_recurrence.ensure_income_instances(session, user.id, today)
         show_im_back, show_return_prompt = await _get_return_menu_state(session, user)
     text = (
         "Привет! Я Платёжный Компас. Помогу понять, сколько денег нужно отложить с каждого дохода, "
@@ -38,6 +41,8 @@ async def start_handler(message: Message) -> None:
 async def menu_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)
+        today = datetime.now(ZoneInfo(user.timezone or get_settings().timezone)).date()
+        await income_recurrence.ensure_income_instances(session, user.id, today)
         show_im_back, show_return_prompt = await _get_return_menu_state(session, user)
     text = _return_prompt_text() if show_return_prompt else "Главное меню"
     await message.answer(text, reply_markup=main_menu_keyboard(show_im_back=show_im_back))

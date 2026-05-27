@@ -350,6 +350,9 @@ async def _apply_savings_and_living_minimum(
 
 
 async def process_received_income(session: AsyncSession, user_id: int, income_id: int, today: date):
+    from app.services import income_recurrence
+
+    await income_recurrence.ensure_income_instances(session, user_id, today)
     income = await incomes_repo.get_by_id(session, user_id, income_id)
     if income is None:
         return None

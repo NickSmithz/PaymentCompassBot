@@ -29,6 +29,15 @@ async def init_db() -> None:
         income_column_names = {row[1] for row in income_columns.fetchall()}
         if "received_at" not in income_column_names:
             await conn.execute(text("ALTER TABLE incomes ADD COLUMN received_at DATETIME NULL"))
+        if "is_recurring" not in income_column_names:
+            await conn.execute(text("ALTER TABLE incomes ADD COLUMN is_recurring BOOLEAN DEFAULT 0"))
+        if "recurrence_type" not in income_column_names:
+            await conn.execute(text("ALTER TABLE incomes ADD COLUMN recurrence_type VARCHAR(32) DEFAULT 'monthly'"))
+        if "parent_income_id" not in income_column_names:
+            await conn.execute(text("ALTER TABLE incomes ADD COLUMN parent_income_id INTEGER"))
+        if "period_date" not in income_column_names:
+            await conn.execute(text("ALTER TABLE incomes ADD COLUMN period_date DATE"))
+        await conn.execute(text("UPDATE incomes SET period_date = income_date WHERE period_date IS NULL"))
 
         columns = await conn.execute(text("PRAGMA table_info(reserve_transactions)"))
         column_names = {row[1] for row in columns.fetchall()}

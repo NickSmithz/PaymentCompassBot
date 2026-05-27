@@ -6,11 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Income
 
 
-async def create(session: AsyncSession, user_id: int, data: dict) -> Income:
+async def create(session: AsyncSession, user_id: int, data: dict, commit: bool = True) -> Income:
     income = Income(user_id=user_id, **data)
     session.add(income)
-    await session.commit()
-    await session.refresh(income)
+    if commit:
+        await session.commit()
+        await session.refresh(income)
+    else:
+        await session.flush()
     return income
 
 
@@ -23,8 +26,41 @@ async def get_by_id_for_user(session: AsyncSession, user_id: int, income_id: int
 
 
 async def list_by_user(session: AsyncSession, user_id: int) -> list[Income]:
-    result = await session.scalars(select(Income).where(Income.user_id == user_id).order_by(Income.income_date.desc()))
+    result = await session.scalars(
+        select(Income).where(Income.user_id == user_id).order_by(Income.income_date.desc(), Income.id.desc())
+    )
     return list(result)
+
+
+async def list_recurring_roots(session: AsyncSession, user_id: int) -> list[Income]:
+    result = await session.scalars(
+        select(Income)
+        .where(
+            Income.user_id == user_id,
+            Income.is_recurring.is_(True),
+            (Income.parent_income_id.is_(None)) | (Income.parent_income_id == Income.id),
+        )
+        .order_by(Income.income_date.asc(), Income.id.asc())
+    )
+    return list(result)
+
+
+async def exists_income_instance(
+    session: AsyncSession,
+    user_id: int,
+    parent_income_id: int,
+    period_date: date,
+) -> bool:
+    existing = await session.scalar(
+        select(Income.id)
+        .where(
+            Income.user_id == user_id,
+            Income.period_date == period_date,
+            (Income.parent_income_id == parent_income_id) | (Income.id == parent_income_id),
+        )
+        .limit(1)
+    )
+    return existing is not None
 
 
 async def list_received_by_date(session: AsyncSession, user_id: int, income_date: date) -> list[Income]:

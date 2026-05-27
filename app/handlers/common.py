@@ -33,6 +33,7 @@ from app.keyboards import (
 from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
 from app.services import allocation as allocation_service
+from app.services import income_recurrence
 from app.services import incomes as income_service
 from app.services import obligations as obligation_service
 from app.services.users import get_or_create_user_from_telegram
@@ -91,6 +92,7 @@ async def edit_back(callback: CallbackQuery, state: FSMContext) -> None:
 async def edit_incomes(callback: CallbackQuery, state: FSMContext) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
+        await income_recurrence.ensure_income_instances(session, user.id, _today(user.timezone))
         incomes = await income_service.list_incomes(session, user.id)
     if not incomes:
         await callback.message.answer("Пока нет доходов для редактирования.", reply_markup=main_menu_keyboard())
@@ -104,6 +106,7 @@ async def edit_incomes(callback: CallbackQuery, state: FSMContext) -> None:
 async def choose_income_delete(callback: CallbackQuery, state: FSMContext) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
+        await income_recurrence.ensure_income_instances(session, user.id, _today(user.timezone))
         incomes = await income_service.list_incomes(session, user.id)
     if not incomes:
         await callback.message.answer("Пока нет доходов для удаления.", reply_markup=main_menu_keyboard())
@@ -469,6 +472,7 @@ async def debug_incomes(message: Message) -> None:
             message.from_user.username,
             message.from_user.first_name,
         )
+        await income_recurrence.ensure_income_instances(session, user.id, _today(user.timezone))
         incomes = await income_service.list_incomes(session, user.id)
 
     lines = ["🧪 Debug incomes", ""]
@@ -481,7 +485,8 @@ async def debug_incomes(message: Message) -> None:
         lines.extend(
             [
                 f"id={income.id} title={income.title} amount={format_money(income.amount)}",
-                f"income_date={income.income_date} status={income.status}",
+                f"income_date={income.income_date} period_date={income.period_date} status={income.status}",
+                f"is_recurring={income.is_recurring} parent_income_id={income.parent_income_id} recurrence_type={income.recurrence_type}",
                 f"received_at={received_at}",
                 f"updated_at={updated_at}",
                 f"created_at={created_at}",

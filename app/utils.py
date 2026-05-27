@@ -57,6 +57,10 @@ def add_month(value: date, preferred_day: int | None = None) -> date:
     return date(year, month, day)
 
 
+def add_month_safe(value: date) -> date:
+    return add_month(value, value.day)
+
+
 def risk_emoji(risk: str) -> str:
     return {"low": "🟢", "medium": "🟡", "high": "🔴"}.get(risk, "⚪")
 

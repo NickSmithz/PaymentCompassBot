@@ -170,6 +170,10 @@ def format_incomes_list(summary) -> str:
                 f"Статус: {labels.get(income.status, income.status)}",
             ]
         )
+        if income.period_date and income.period_date != income.income_date:
+            lines.append(f"Период: {format_date(income.period_date)}")
+        if income.is_recurring:
+            lines.append("Регулярность: каждый месяц")
         if income.source:
             lines.append(f"Источник: {income.source}")
         lines.append("")

@@ -57,9 +57,13 @@ class Income(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     income_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    period_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="expected")
     source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_recurring: Mapped[bool] = mapped_column(Boolean, default=False)
+    recurrence_type: Mapped[str | None] = mapped_column(String(32), nullable=True, default="monthly")
+    parent_income_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
 
 class PaymentRecord(Base):

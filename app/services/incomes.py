@@ -14,11 +14,22 @@ def _now() -> datetime:
 
 async def create_income(session: AsyncSession, user_id: int, data: dict, now: datetime | None = None):
     payload = dict(data)
+    payload.setdefault("period_date", payload.get("income_date"))
+    payload.setdefault("is_recurring", False)
+    if payload.get("is_recurring"):
+        payload.setdefault("recurrence_type", "monthly")
     if payload.get("status") == "received":
         payload["received_at"] = now or _now()
     else:
         payload["received_at"] = None
-    return await incomes_repo.create(session, user_id, payload)
+    income = await incomes_repo.create(session, user_id, payload)
+    if income.is_recurring and income.parent_income_id is None:
+        income.parent_income_id = income.id
+        if income.period_date is None:
+            income.period_date = income.income_date
+        await session.commit()
+        await session.refresh(income)
+    return income
 
 
 async def create_income_from_user_input(
@@ -29,12 +40,15 @@ async def create_income_from_user_input(
     now: datetime,
 ) -> dict:
     from app.services import allocation as allocation_service
+    from app.services import income_recurrence
 
     income = await create_income(session, user_id, data, now=now)
     allocation_result = None
     if income.status == "received":
+        await income_recurrence.ensure_income_instances(session, user_id, today)
         allocation_result = await allocation_service.process_received_income(session, user_id, income.id, today)
         await users_repo.update_last_focus_income_id(session, user_id, income.id)
+        await income_recurrence.create_next_income_instance_if_needed(session, user_id, income.id, today)
     return {"income": income, "allocation": allocation_result}
 
 
@@ -43,8 +57,11 @@ async def list_incomes(session: AsyncSession, user_id: int):
 
 
 async def get_user_incomes_summary(session: AsyncSession, user_id: int, today: date | None = None):
-    incomes = await incomes_repo.list_by_user(session, user_id)
+    from app.services import income_recurrence
+
     today = today or date.today()
+    await income_recurrence.ensure_income_instances(session, user_id, today)
+    incomes = await incomes_repo.list_by_user(session, user_id)
 
     def sort_key(income):
         if income.income_date < today:
@@ -75,6 +92,8 @@ async def update_income(session: AsyncSession, user_id: int, income_id: int, dat
     income = await incomes_repo.get_by_id(session, user_id, income_id)
     if income is None:
         return None
+    if "income_date" in data and "period_date" not in data:
+        data["period_date"] = data["income_date"]
     should_reprocess = income.status == "received" and any(key in data for key in {"amount", "income_date"})
     if should_reprocess:
         await allocation_service.release_auto_reserves_for_income(session, user_id, income.id)
@@ -94,6 +113,7 @@ async def update_income_status(
     now: datetime | None = None,
 ):
     from app.services import allocation as allocation_service
+    from app.services import income_recurrence
 
     if new_status not in {"expected", "received", "cancelled"}:
         raise ValueError("Unsupported income status")
@@ -112,8 +132,10 @@ async def update_income_status(
     recalculation = None
     reserves_released = False
     if new_status == "received" and old_status != "received":
+        await income_recurrence.ensure_income_instances(session, user_id, today)
         allocation_result = await allocation_service.process_received_income(session, user_id, income.id, today)
         await users_repo.update_last_focus_income_id(session, user_id, income.id)
+        await income_recurrence.create_next_income_instance_if_needed(session, user_id, income.id, today)
     elif old_status == "received" and new_status in {"expected", "cancelled"}:
         await allocation_service.release_reserves_for_income(session, user_id, income.id)
         reserves_released = True

@@ -16,6 +16,7 @@ class AddIncomeStates(StatesGroup):
     title = State()
     amount = State()
     income_date = State()
+    is_recurring = State()
     status = State()
 
 

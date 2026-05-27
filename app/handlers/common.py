@@ -414,7 +414,12 @@ async def debug_reserves(message: Message) -> None:
         if not obligations:
             lines.append("Платежей нет.")
         for obligation in obligations:
-            raw_reserved = await reserves_repo.sum_reserved_for_obligation(session, user.id, obligation.id)
+            raw_reserved = await reserves_repo.sum_reserved_for_obligation_period(
+                session,
+                user.id,
+                obligation.id,
+                obligation.next_payment_date,
+            )
             paid = await payments_repo.sum_paid_for_obligation_period(
                 session,
                 obligation.id,

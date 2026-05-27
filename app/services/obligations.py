@@ -1,12 +1,14 @@
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.calculations import ObligationCalculationDTO, calculate_remaining_amount, calculate_reserved_adjustment
 from app.repositories import incomes as incomes_repo
 from app.repositories import obligations as obligations_repo
 from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
+from app.utils import add_month
 
 
 class ReservedAmountValidationError(ValueError):
@@ -14,6 +16,39 @@ class ReservedAmountValidationError(ValueError):
         super().__init__(code)
         self.code = code
         self.max_amount = max_amount
+
+
+def generate_obligation_instances(obligations, horizon_start: date, horizon_end: date) -> list[ObligationCalculationDTO]:
+    instances: list[ObligationCalculationDTO] = []
+    for obligation in obligations:
+        due_date = obligation.next_payment_date
+
+        if not obligation.is_recurring:
+            if due_date <= horizon_end:
+                instances.append(_instance_dto(obligation, due_date))
+            continue
+
+        while due_date <= horizon_end:
+            if due_date >= horizon_start or due_date == obligation.next_payment_date:
+                instances.append(_instance_dto(obligation, due_date))
+            due_date = add_month(due_date, obligation.payment_day)
+
+    return instances
+
+
+def _instance_dto(obligation, due_date: date) -> ObligationCalculationDTO:
+    return ObligationCalculationDTO(
+        id=obligation.id,
+        title=obligation.title,
+        type=obligation.type,
+        monthly_payment_amount=obligation.monthly_payment_amount,
+        next_payment_date=due_date,
+        priority=obligation.priority,
+        reserved_amount=0,
+        paid_amount=0,
+        is_recurring=obligation.is_recurring,
+        period_date=due_date,
+    )
 
 
 async def create_obligation(session: AsyncSession, user_id: int, data: dict):
@@ -28,6 +63,7 @@ async def create_obligation(session: AsyncSession, user_id: int, data: dict):
             amount=initial_reserved,
             transaction_type="manual_adjustment",
             source="manual",
+            period_date=obligation.next_payment_date,
             comment="Начальная сумма «Уже отложено» при создании платежа",
         )
         await session.commit()
@@ -62,43 +98,72 @@ async def deactivate_obligation(session: AsyncSession, user_id: int, obligation_
 
 async def get_upcoming_obligations_summary(session: AsyncSession, user_id: int, today: date):
     obligations = await obligations_repo.list_active_by_user(session, user_id)
+    horizon_end = today + timedelta(days=get_settings().planning_horizon_days)
     items = []
     for obligation in obligations:
-        raw_reserved = await reserves_repo.sum_reserved_for_obligation(session, user_id, obligation.id)
-        paid = await payments_repo.sum_paid_for_obligation_period(session, obligation.id, None, obligation.next_payment_date)
-        max_allowed_reserved = max(0, obligation.monthly_payment_amount - paid)
-        reserved = min(raw_reserved, max_allowed_reserved)
-        remaining = calculate_remaining_amount(
-            ObligationCalculationDTO(
-                id=obligation.id,
-                title=obligation.title,
-                type=obligation.type,
-                monthly_payment_amount=obligation.monthly_payment_amount,
-                next_payment_date=obligation.next_payment_date,
-                priority=obligation.priority,
-                reserved_amount=reserved,
-                paid_amount=paid,
-                is_recurring=obligation.is_recurring,
+        instances = generate_obligation_instances([obligation], today, horizon_end)
+        if not instances:
+            continue
+        selected = None
+        for instance in instances:
+            period_date = instance.period_date or instance.next_payment_date
+            raw_reserved = await reserves_repo.sum_reserved_for_obligation_period(
+                session,
+                user_id,
+                obligation.id,
+                period_date,
             )
-        )
+            paid = await payments_repo.sum_paid_for_obligation_period(session, obligation.id, None, period_date)
+            max_allowed_reserved = max(0, obligation.monthly_payment_amount - paid)
+            reserved = min(raw_reserved, max_allowed_reserved)
+            remaining = calculate_remaining_amount(
+                ObligationCalculationDTO(
+                    id=obligation.id,
+                    title=obligation.title,
+                    type=obligation.type,
+                    monthly_payment_amount=obligation.monthly_payment_amount,
+                    next_payment_date=instance.next_payment_date,
+                    priority=obligation.priority,
+                    reserved_amount=reserved,
+                    paid_amount=paid,
+                    is_recurring=obligation.is_recurring,
+                    period_date=period_date,
+                )
+            )
+            selected = {
+                "instance": instance,
+                "period_date": period_date,
+                "reserved": reserved,
+                "paid": paid,
+                "remaining": remaining,
+            }
+            if remaining > 0:
+                break
+        if selected is None:
+            continue
+        instance = selected["instance"]
+        reserved = selected["reserved"]
+        paid = selected["paid"]
+        remaining = selected["remaining"]
         future_income_sum_before_due = await incomes_repo.sum_expected_between(
             session,
             user_id,
             today,
-            obligation.next_payment_date,
+            instance.next_payment_date,
         )
         items.append(
             {
                 "id": obligation.id,
                 "title": obligation.title,
                 "amount": obligation.monthly_payment_amount,
-                "date": obligation.next_payment_date,
+                "date": instance.next_payment_date,
+                "period_date": selected["period_date"],
                 "reserved_amount": reserved,
                 "paid_amount": paid,
                 "remaining_amount": remaining,
                 "future_income_sum_before_due": future_income_sum_before_due,
                 "has_future_income_before_due": future_income_sum_before_due > 0,
-                "days_left": (obligation.next_payment_date - today).days,
+                "days_left": (instance.next_payment_date - today).days,
             }
         )
     items = sorted(items, key=lambda item: item["date"])
@@ -143,7 +208,12 @@ async def get_obligation_reserved_amount_info(session: AsyncSession, user_id: in
     obligation = await obligations_repo.get_by_id(session, user_id, obligation_id)
     if obligation is None or not obligation.is_active:
         return None
-    current_reserved = await reserves_repo.sum_reserved_for_obligation(session, user_id, obligation.id)
+    current_reserved = await reserves_repo.sum_reserved_for_obligation_period(
+        session,
+        user_id,
+        obligation.id,
+        obligation.next_payment_date,
+    )
     return {"obligation": obligation, "current_reserved_amount": current_reserved}
 
 
@@ -162,7 +232,13 @@ async def update_obligation_reserved_amount(
     if new_reserved_amount > obligation.monthly_payment_amount:
         raise ReservedAmountValidationError("too_large", max_amount=obligation.monthly_payment_amount)
 
-    current_reserved = await reserves_repo.sum_reserved_for_obligation(session, user_id, obligation.id)
+    period_date = obligation.next_payment_date
+    current_reserved = await reserves_repo.sum_reserved_for_obligation_period(
+        session,
+        user_id,
+        obligation.id,
+        period_date,
+    )
     adjustment = calculate_reserved_adjustment(current_reserved, new_reserved_amount)
     transaction_type = adjustment["transaction_type"]
     amount = adjustment["amount"]
@@ -175,6 +251,7 @@ async def update_obligation_reserved_amount(
             amount=amount,
             transaction_type="manual_adjustment",
             source="manual",
+            period_date=period_date,
             comment="Ручное увеличение суммы «Уже отложено»",
         )
         await session.commit()
@@ -187,6 +264,7 @@ async def update_obligation_reserved_amount(
             amount=amount,
             transaction_type="release",
             source="manual",
+            period_date=period_date,
             comment="Ручное уменьшение суммы «Уже отложено»",
         )
         await session.commit()

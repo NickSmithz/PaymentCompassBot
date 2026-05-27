@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.models import Base, Income, Obligation, ReserveTransaction, User
 from app.repositories import reserves as reserves_repo
 from app.services import allocation as allocation_service
+from app.services import obligations as obligation_service
 
 
 def run(coro):
@@ -64,6 +65,7 @@ def test_process_received_income_creates_readable_auto_reserves():
                 user = await create_user(session)
                 obligation = await create_obligation(session, user.id, 5600 * 100, today + timedelta(days=5), "Манимэн")
                 income = await create_income(session, user.id, 30000 * 100, today, "Юнона")
+                obligation.is_recurring = False
                 await session.commit()
 
                 await allocation_service.process_received_income(session, user.id, income.id, today)
@@ -85,6 +87,7 @@ def test_second_income_does_not_over_reserve_closed_obligation():
                 user = await create_user(session)
                 obligation = await create_obligation(session, user.id, 5600 * 100, today + timedelta(days=5), "Манимэн")
                 first_income = await create_income(session, user.id, 30000 * 100, today, "Юнона")
+                obligation.is_recurring = False
                 await session.commit()
                 await allocation_service.process_received_income(session, user.id, first_income.id, today)
 
@@ -111,6 +114,7 @@ def test_second_income_reserves_only_remaining_amount():
                 obligation = await create_obligation(session, user.id, 1500 * 100, today + timedelta(days=5), "Кредитка")
                 first_income = await create_income(session, user.id, 10000 * 100, today, "Первый доход")
                 second_income = await create_income(session, user.id, 25000 * 100, today + timedelta(days=1), "Второй доход")
+                obligation.is_recurring = False
                 await reserves_repo.create(
                     session,
                     user_id=user.id,
@@ -119,6 +123,7 @@ def test_second_income_reserves_only_remaining_amount():
                     amount=740 * 100,
                     transaction_type="reserve",
                     source="auto_plan",
+                    period_date=obligation.next_payment_date,
                     comment="Автоматическое резервирование с дохода",
                 )
                 await session.commit()
@@ -202,6 +207,7 @@ def test_release_auto_reserves_for_income_cancels_income_plan():
                     amount=5600 * 100,
                     transaction_type="reserve",
                     source="auto_plan",
+                    period_date=obligation.next_payment_date,
                     comment="Автоматическое резервирование с дохода",
                 )
                 await session.commit()
@@ -210,6 +216,179 @@ def test_release_auto_reserves_for_income_cancels_income_plan():
 
                 reserved = await reserves_repo.sum_reserved_for_obligation(session, user.id, obligation.id)
                 assert reserved == 0
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_recurring_obligation_generates_future_instances_within_horizon():
+    today = date(2026, 5, 28)
+    obligation = Obligation(
+        id=1,
+        user_id=1,
+        title="Alpha Credit",
+        type="credit",
+        monthly_payment_amount=40000 * 100,
+        next_payment_date=date(2026, 5, 30),
+        payment_day=30,
+        priority=3,
+        is_active=True,
+        is_recurring=True,
+    )
+
+    instances = obligation_service.generate_obligation_instances(
+        [obligation],
+        today,
+        today + timedelta(days=45),
+    )
+
+    assert [item.period_date for item in instances] == [date(2026, 5, 30), date(2026, 6, 30)]
+
+
+def test_non_recurring_obligation_does_not_generate_future_instances():
+    today = date(2026, 5, 28)
+    obligation = Obligation(
+        id=1,
+        user_id=1,
+        title="One Time",
+        type="other",
+        monthly_payment_amount=10000 * 100,
+        next_payment_date=date(2026, 5, 30),
+        payment_day=None,
+        priority=3,
+        is_active=True,
+        is_recurring=False,
+    )
+
+    instances = obligation_service.generate_obligation_instances(
+        [obligation],
+        today,
+        today + timedelta(days=90),
+    )
+
+    assert [item.period_date for item in instances] == [date(2026, 5, 30)]
+
+
+def test_reserves_are_separated_by_obligation_period():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(
+                    session,
+                    user.id,
+                    40000 * 100,
+                    date(2026, 5, 30),
+                    "Alpha Credit",
+                )
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=obligation.id,
+                    income_id=None,
+                    amount=40000 * 100,
+                    transaction_type="reserve",
+                    source="auto_plan",
+                    period_date=date(2026, 5, 30),
+                )
+                await session.commit()
+
+                may_reserved = await reserves_repo.sum_reserved_for_obligation_period(
+                    session,
+                    user.id,
+                    obligation.id,
+                    date(2026, 5, 30),
+                )
+                june_reserved = await reserves_repo.sum_reserved_for_obligation_period(
+                    session,
+                    user.id,
+                    obligation.id,
+                    date(2026, 6, 30),
+                )
+
+                assert may_reserved == 40000 * 100
+                assert june_reserved == 0
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_closed_current_recurring_instance_does_not_block_next_instance_allocation():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 28)
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(
+                    session,
+                    user.id,
+                    40000 * 100,
+                    date(2026, 5, 30),
+                    "Alpha Credit",
+                )
+                income = await create_income(session, user.id, 30000 * 100, date(2026, 6, 20), "June Income")
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=obligation.id,
+                    income_id=None,
+                    amount=40000 * 100,
+                    transaction_type="manual_adjustment",
+                    source="manual",
+                    period_date=date(2026, 5, 30),
+                )
+                await session.commit()
+
+                result = await allocation_service.process_received_income(session, user.id, income.id, today)
+
+                june_items = [
+                    item
+                    for item in result.items
+                    if item.obligation_id == obligation.id and item.period_date == date(2026, 6, 30)
+                ]
+                assert june_items
+                assert june_items[0].recommended_reserve > 0
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_upcoming_obligations_shows_next_open_recurring_instance_when_current_is_closed():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 28)
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(
+                    session,
+                    user.id,
+                    40000 * 100,
+                    date(2026, 5, 30),
+                    "Alpha Credit",
+                )
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=obligation.id,
+                    income_id=None,
+                    amount=40000 * 100,
+                    transaction_type="manual_adjustment",
+                    source="manual",
+                    period_date=date(2026, 5, 30),
+                )
+                await session.commit()
+
+                summary = await obligation_service.get_upcoming_obligations_summary(session, user.id, today)
+
+                assert summary["items"][0]["id"] == obligation.id
+                assert summary["items"][0]["date"] == date(2026, 6, 30)
+                assert summary["items"][0]["remaining_amount"] == 40000 * 100
         finally:
             await engine.dispose()
 

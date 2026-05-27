@@ -23,6 +23,7 @@ class ObligationCalculationDTO:
     reserved_amount: int
     paid_amount: int
     is_recurring: bool
+    period_date: date | None = None
 
 
 @dataclass
@@ -30,6 +31,7 @@ class AllocationItem:
     obligation_id: int
     title: str
     due_date: date
+    period_date: date
     required_amount: int
     remaining_amount: int
     recommended_reserve: int
@@ -73,6 +75,9 @@ class PurchaseImpactResult:
 
 def calculate_remaining_amount(obligation: ObligationCalculationDTO) -> int:
     return max(0, obligation.monthly_payment_amount - obligation.reserved_amount - obligation.paid_amount)
+
+
+ObligationInstanceDTO = ObligationCalculationDTO
 
 
 def calculate_reserved_balance(transactions) -> int:
@@ -217,6 +222,7 @@ def calculate_income_allocation(
                 obligation_id=obligation.id,
                 title=obligation.title,
                 due_date=obligation.next_payment_date,
+                period_date=obligation.period_date or obligation.next_payment_date,
                 required_amount=obligation.monthly_payment_amount,
                 remaining_amount=remaining_amount,
                 recommended_reserve=recommended_reserve,

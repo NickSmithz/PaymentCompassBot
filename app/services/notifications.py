@@ -24,7 +24,12 @@ async def send_payment_reminder(bot: Any, user, obligation, reminder_type: str, 
 async def check_payment_reminders(session: AsyncSession, bot: Any, today: date) -> None:
     pairs = await obligations_repo.list_due_for_reminders(session, today)
     for obligation, user in pairs:
-        reserved = await reserves_repo.sum_reserved_for_obligation(session, user.id, obligation.id)
+        reserved = await reserves_repo.sum_reserved_for_obligation_period(
+            session,
+            user.id,
+            obligation.id,
+            obligation.next_payment_date,
+        )
         remaining = max(0, obligation.monthly_payment_amount - reserved)
         days_left = (obligation.next_payment_date - today).days
         if days_left not in {7, 3, 1, 0} and days_left >= 0:

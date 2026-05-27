@@ -36,6 +36,27 @@ async def init_db() -> None:
             await conn.execute(
                 text("ALTER TABLE reserve_transactions ADD COLUMN source VARCHAR(32) DEFAULT 'auto_plan'")
             )
+        if "period_date" not in column_names:
+            await conn.execute(text("ALTER TABLE reserve_transactions ADD COLUMN period_date DATE"))
+        await conn.execute(
+            text(
+                """
+                UPDATE reserve_transactions
+                SET period_date = (
+                    SELECT obligations.next_payment_date
+                    FROM obligations
+                    WHERE obligations.id = reserve_transactions.obligation_id
+                )
+                WHERE period_date IS NULL
+                  AND obligation_id IS NOT NULL
+                """
+            )
+        )
+
+        payment_columns = await conn.execute(text("PRAGMA table_info(payment_records)"))
+        payment_column_names = {row[1] for row in payment_columns.fetchall()}
+        if "period_date" not in payment_column_names:
+            await conn.execute(text("ALTER TABLE payment_records ADD COLUMN period_date DATE"))
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

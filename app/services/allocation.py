@@ -1,9 +1,10 @@
 import logging
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.calculations import (
     AllocationItem,
     AllocationResult,
@@ -20,6 +21,7 @@ from app.repositories import obligations as obligations_repo
 from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
 from app.services import living_minimum as living_minimum_service
+from app.services import obligations as obligation_service
 from app.services import savings as savings_service
 
 
@@ -38,25 +40,27 @@ def _rebuild_result_with_items(result: AllocationResult, items: list[AllocationI
     return result
 
 
-async def _obligation_dto(session: AsyncSession, obligation) -> ObligationCalculationDTO:
-    reserved = await reserves_repo.sum_reserved_for_obligation(session, obligation.user_id, obligation.id)
-    paid = await payments_repo.sum_paid_for_obligation_period(session, obligation.id, None, obligation.next_payment_date)
+async def _obligation_dto(session: AsyncSession, user_id: int, instance: ObligationCalculationDTO) -> ObligationCalculationDTO:
+    period_date = instance.period_date or instance.next_payment_date
+    reserved = await reserves_repo.sum_reserved_for_obligation_period(session, user_id, instance.id, period_date)
+    paid = await payments_repo.sum_paid_for_obligation_period(session, instance.id, None, period_date)
     dto = ObligationCalculationDTO(
-        id=obligation.id,
-        title=obligation.title,
-        type=obligation.type,
-        monthly_payment_amount=obligation.monthly_payment_amount,
-        next_payment_date=obligation.next_payment_date,
-        priority=obligation.priority,
+        id=instance.id,
+        title=instance.title,
+        type=instance.type,
+        monthly_payment_amount=instance.monthly_payment_amount,
+        next_payment_date=instance.next_payment_date,
+        priority=instance.priority,
         reserved_amount=reserved,
         paid_amount=paid,
-        is_recurring=obligation.is_recurring,
+        is_recurring=instance.is_recurring,
+        period_date=period_date,
     )
     logger.debug(
         "Allocation DTO: obligation_id=%s title=%s required=%s reserved=%s paid=%s remaining=%s",
-        obligation.id,
-        obligation.title,
-        obligation.monthly_payment_amount,
+        instance.id,
+        instance.title,
+        instance.monthly_payment_amount,
         reserved,
         paid,
         calculate_remaining_amount(dto),
@@ -73,20 +77,24 @@ async def _calculate_received_income(
     exclude_income_reserves: bool,
 ) -> AllocationResult:
     obligations = await obligations_repo.list_active_by_user(session, user_id)
+    settings = get_settings()
+    horizon_end = max(today, income.income_date) + timedelta(days=settings.planning_horizon_days)
+    obligation_instances = obligation_service.generate_obligation_instances(obligations, today, horizon_end)
     future_incomes = await incomes_repo.list_future_by_user(session, user_id, income.income_date)
-    existing_by_obligation: dict[int, int] = {}
+    existing_by_obligation_period: dict[tuple[int, date], int] = {}
 
     if exclude_income_reserves:
-        existing_by_obligation = await reserves_repo.auto_reserved_by_obligation_for_income(
+        existing_by_obligation_period = await reserves_repo.auto_reserved_by_obligation_period_for_income(
             session,
             user_id,
             income.id,
         )
 
     obligation_dtos = []
-    for obligation in obligations:
-        dto = await _obligation_dto(session, obligation)
+    for instance in obligation_instances:
+        dto = await _obligation_dto(session, user_id, instance)
         if exclude_income_reserves:
+            period_date = dto.period_date or dto.next_payment_date
             dto = ObligationCalculationDTO(
                 id=dto.id,
                 title=dto.title,
@@ -94,9 +102,13 @@ async def _calculate_received_income(
                 monthly_payment_amount=dto.monthly_payment_amount,
                 next_payment_date=dto.next_payment_date,
                 priority=dto.priority,
-                reserved_amount=max(0, dto.reserved_amount - existing_by_obligation.get(dto.id, 0)),
+                reserved_amount=max(
+                    0,
+                    dto.reserved_amount - existing_by_obligation_period.get((dto.id, period_date), 0),
+                ),
                 paid_amount=dto.paid_amount,
                 is_recurring=dto.is_recurring,
+                period_date=period_date,
             )
         obligation_dtos.append(dto)
 
@@ -114,9 +126,9 @@ async def _result_from_existing_reserves(
     income_id: int,
     allocation_result: AllocationResult,
 ) -> AllocationResult:
-    by_obligation = await reserves_repo.auto_reserved_by_obligation_for_income(session, user_id, income_id)
+    by_obligation_period = await reserves_repo.auto_reserved_by_obligation_period_for_income(session, user_id, income_id)
     items = []
-    for obligation_id, amount in by_obligation.items():
+    for (obligation_id, period_date), amount in by_obligation_period.items():
         obligation = await obligations_repo.get_by_id(session, user_id, obligation_id)
         if obligation is None or amount <= 0:
             continue
@@ -124,7 +136,8 @@ async def _result_from_existing_reserves(
             AllocationItem(
                 obligation_id=obligation.id,
                 title=obligation.title,
-                due_date=obligation.next_payment_date,
+                due_date=period_date,
+                period_date=period_date,
                 required_amount=obligation.monthly_payment_amount,
                 remaining_amount=amount,
                 recommended_reserve=amount,
@@ -170,12 +183,18 @@ async def create_reserves_safely(
             )
             continue
 
-        current_reserved = await reserves_repo.sum_reserved_for_obligation(session, user_id, obligation.id)
+        period_date = item.period_date
+        current_reserved = await reserves_repo.sum_reserved_for_obligation_period(
+            session,
+            user_id,
+            obligation.id,
+            period_date,
+        )
         paid_amount = await payments_repo.sum_paid_for_obligation_period(
             session,
             obligation.id,
             None,
-            obligation.next_payment_date,
+            period_date,
         )
         current_remaining = calculate_remaining_amount(
             ObligationCalculationDTO(
@@ -183,11 +202,12 @@ async def create_reserves_safely(
                 title=obligation.title,
                 type=obligation.type,
                 monthly_payment_amount=obligation.monthly_payment_amount,
-                next_payment_date=obligation.next_payment_date,
+                next_payment_date=item.due_date,
                 priority=obligation.priority,
                 reserved_amount=current_reserved,
                 paid_amount=paid_amount,
                 is_recurring=obligation.is_recurring,
+                period_date=period_date,
             )
         )
         amount_to_create = calculate_reserve_to_create(item.recommended_reserve, current_remaining)
@@ -221,6 +241,7 @@ async def create_reserves_safely(
             amount=amount_to_create,
             transaction_type="reserve",
             source="auto_plan",
+            period_date=period_date,
             comment="Автоматическое резервирование с дохода",
         )
         logger.info(
@@ -253,11 +274,17 @@ async def create_reserves_safely(
     )
 
     for item in created_items:
-        check_reserved = await reserves_repo.sum_reserved_for_obligation(session, user_id, item.obligation_id)
+        check_reserved = await reserves_repo.sum_reserved_for_obligation_period(
+            session,
+            user_id,
+            item.obligation_id,
+            item.period_date,
+        )
         logger.info(
-            "RESERVE_VERIFY obligation_id=%s title=%s sum_reserved_after_commit=%s",
+            "RESERVE_VERIFY obligation_id=%s title=%s period_date=%s sum_reserved_after_commit=%s",
             item.obligation_id,
             item.title,
+            item.period_date,
             check_reserved,
         )
 

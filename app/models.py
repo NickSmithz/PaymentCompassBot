@@ -70,6 +70,7 @@ class PaymentRecord(Base):
     obligation_id: Mapped[int] = mapped_column(ForeignKey("obligations.id"), index=True)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     paid_at: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    period_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -84,6 +85,7 @@ class ReserveTransaction(Base):
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     transaction_type: Mapped[str] = mapped_column(String(32), nullable=False)
     source: Mapped[str | None] = mapped_column(String(32), nullable=True, default="auto_plan", server_default="auto_plan")
+    period_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

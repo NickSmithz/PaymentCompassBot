@@ -39,6 +39,7 @@ async def apply_return_flow(session: AsyncSession, user_id: int, today: date) ->
                 obligation_id=obligation.id,
                 amount=amount_to_pay,
                 paid_at=today,
+                period_date=obligation.next_payment_date,
                 comment=RETURN_FLOW_PAYMENT_COMMENT,
             )
             session.add(record)
@@ -113,6 +114,14 @@ async def _sum_paid_for_obligation_return_period(
     payment_date: date,
     today: date,
 ) -> int:
+    period_paid = await session.scalar(
+        select(func.coalesce(func.sum(PaymentRecord.amount), 0)).where(
+            PaymentRecord.obligation_id == obligation_id,
+            PaymentRecord.period_date == payment_date,
+        )
+    )
+    if period_paid:
+        return period_paid
     period_start = date(payment_date.year, payment_date.month, 1)
     return (
         await session.scalar(

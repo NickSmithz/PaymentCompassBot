@@ -1,5 +1,6 @@
 from sqlalchemy import and_, delete as sa_delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import date
 
 from app.models import ReserveTransaction
 
@@ -34,6 +35,7 @@ async def create(
     transaction_type: str,
     comment: str | None = None,
     source: str | None = None,
+    period_date: date | None = None,
 ) -> ReserveTransaction:
     tx = ReserveTransaction(
         user_id=user_id,
@@ -42,6 +44,7 @@ async def create(
         amount=amount,
         transaction_type=transaction_type,
         source=source or _default_source(transaction_type),
+        period_date=period_date,
         comment=comment,
     )
     session.add(tx)
@@ -97,6 +100,51 @@ async def sum_reserved_for_obligation(
         select(func.coalesce(func.sum(ReserveTransaction.amount), 0)).where(*release_filters)
     )
     return max(0, (reserve or 0) - (release or 0))
+
+
+async def sum_reserved_for_obligation_period(
+    session: AsyncSession,
+    user_id: int,
+    obligation_id: int,
+    period_date: date | None,
+) -> int:
+    reserve = await session.scalar(
+        select(func.coalesce(func.sum(ReserveTransaction.amount), 0)).where(
+            ReserveTransaction.user_id == user_id,
+            ReserveTransaction.obligation_id == obligation_id,
+            ReserveTransaction.period_date == period_date,
+            ReserveTransaction.transaction_type.in_(["reserve", "manual_adjustment"]),
+        )
+    )
+    release = await session.scalar(
+        select(func.coalesce(func.sum(ReserveTransaction.amount), 0)).where(
+            ReserveTransaction.user_id == user_id,
+            ReserveTransaction.obligation_id == obligation_id,
+            ReserveTransaction.period_date == period_date,
+            ReserveTransaction.transaction_type == "release",
+        )
+    )
+    return max(0, (reserve or 0) - (release or 0))
+
+
+async def _first_reserved_period_for_obligation(
+    session: AsyncSession,
+    user_id: int,
+    obligation_id: int,
+) -> date | None:
+    result = await session.scalars(
+        select(ReserveTransaction.period_date)
+        .where(
+            ReserveTransaction.user_id == user_id,
+            ReserveTransaction.obligation_id == obligation_id,
+        )
+        .group_by(ReserveTransaction.period_date)
+        .order_by(ReserveTransaction.period_date.asc())
+    )
+    for period_date in result:
+        if await sum_reserved_for_obligation_period(session, user_id, obligation_id, period_date) > 0:
+            return period_date
+    return None
 
 
 async def list_by_income(
@@ -242,6 +290,30 @@ async def auto_reserved_by_obligation_for_income(
     return {obligation_id: max(0, amount) for obligation_id, amount in amounts.items() if amount > 0}
 
 
+async def auto_reserved_by_obligation_period_for_income(
+    session: AsyncSession,
+    user_id: int,
+    income_id: int,
+) -> dict[tuple[int, date], int]:
+    rows = await list_by_income(session, income_id, user_id=user_id)
+    amounts: dict[tuple[int, date], int] = {}
+    for tx in rows:
+        if tx.obligation_id is None:
+            continue
+        is_auto = tx.source == AUTO_PLAN_SOURCE or tx.comment == AUTO_PLAN_SOURCE
+        if not is_auto:
+            continue
+        period_date = tx.period_date
+        if period_date is None:
+            continue
+        key = (tx.obligation_id, period_date)
+        if tx.transaction_type == "reserve":
+            amounts[key] = amounts.get(key, 0) + tx.amount
+        elif tx.transaction_type == "release":
+            amounts[key] = amounts.get(key, 0) - tx.amount
+    return {key: max(0, amount) for key, amount in amounts.items() if amount > 0}
+
+
 async def release_for_obligation(
     session: AsyncSession,
     user_id: int,
@@ -249,8 +321,21 @@ async def release_for_obligation(
     amount: int,
     comment: str | None = None,
     source: str | None = None,
+    period_date: date | None = None,
 ) -> ReserveTransaction:
-    tx = await create(session, user_id, obligation_id, None, amount, "release", comment, source or MANUAL_SOURCE)
+    if period_date is None:
+        period_date = await _first_reserved_period_for_obligation(session, user_id, obligation_id)
+    tx = await create(
+        session,
+        user_id,
+        obligation_id,
+        None,
+        amount,
+        "release",
+        comment,
+        source or MANUAL_SOURCE,
+        period_date=period_date,
+    )
     await session.commit()
     return tx
 
@@ -261,8 +346,8 @@ async def release_auto_reserves_for_income(
     income_id: int,
 ) -> list[ReserveTransaction]:
     rows = await list_by_income(session, income_id, user_id=user_id)
-    reserve_amounts: dict[int, int] = {}
-    release_amounts: dict[int, int] = {}
+    reserve_amounts: dict[tuple[int, date | None], int] = {}
+    release_amounts: dict[tuple[int, date | None], int] = {}
 
     for tx in rows:
         if tx.obligation_id is None:
@@ -270,14 +355,15 @@ async def release_auto_reserves_for_income(
         is_auto = tx.source == AUTO_PLAN_SOURCE or tx.comment == AUTO_PLAN_SOURCE
         if not is_auto:
             continue
+        key = (tx.obligation_id, tx.period_date)
         if tx.transaction_type == "reserve":
-            reserve_amounts[tx.obligation_id] = reserve_amounts.get(tx.obligation_id, 0) + tx.amount
+            reserve_amounts[key] = reserve_amounts.get(key, 0) + tx.amount
         elif tx.transaction_type == "release":
-            release_amounts[tx.obligation_id] = release_amounts.get(tx.obligation_id, 0) + tx.amount
+            release_amounts[key] = release_amounts.get(key, 0) + tx.amount
 
     releases = []
-    for obligation_id, reserve_sum in reserve_amounts.items():
-        release_amount = max(0, reserve_sum - release_amounts.get(obligation_id, 0))
+    for (obligation_id, period_date), reserve_sum in reserve_amounts.items():
+        release_amount = max(0, reserve_sum - release_amounts.get((obligation_id, period_date), 0))
         if release_amount <= 0:
             continue
         releases.append(
@@ -289,6 +375,7 @@ async def release_auto_reserves_for_income(
                 amount=release_amount,
                 transaction_type="release",
                 source=AUTO_PLAN_SOURCE,
+                period_date=period_date,
                 comment="Отмена автоматического резерва по доходу",
             )
         )

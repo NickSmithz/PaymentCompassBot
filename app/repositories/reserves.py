@@ -1,4 +1,4 @@
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete as sa_delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ReserveTransaction
@@ -155,6 +155,11 @@ async def list_by_user(
         stmt = stmt.limit(limit)
     result = await session.scalars(stmt)
     return list(result)
+
+
+async def delete_by_user(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(sa_delete(ReserveTransaction).where(ReserveTransaction.user_id == user_id))
+    return result.rowcount or 0
 
 
 async def has_auto_reserves_for_income(session: AsyncSession, user_id: int, income_id: int) -> bool:

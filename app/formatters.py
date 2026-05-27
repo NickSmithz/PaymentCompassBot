@@ -548,6 +548,30 @@ def format_return_result(summary, today) -> str:
     )
 
 
+def format_dev_reset_state_result(summary) -> str:
+    return (
+        "✅ DEV-сброс выполнен\n\n"
+        "Что изменено:\n"
+        f"Доходов сброшено в «Ожидается»: {summary['incomes_reset']}\n"
+        f"Платежей активировано: {summary['obligations_activated']}\n"
+        f"Оплат удалено: {summary['payment_records_deleted']}\n"
+        f"Резервов удалено: {summary['reserve_transactions_deleted']}\n\n"
+        "Можно повторять тестирование сценариев."
+    )
+
+
+def format_dev_clear_all_result(summary) -> str:
+    return (
+        "✅ DEV-очистка выполнена\n\n"
+        "Удалено:\n"
+        f"Доходов: {summary['incomes_deleted']}\n"
+        f"Платежей: {summary['obligations_deleted']}\n"
+        f"Оплат: {summary['payment_records_deleted']}\n"
+        f"Резервов: {summary['reserve_transactions_deleted']}\n\n"
+        "Теперь можно начать тестирование с нуля через /start."
+    )
+
+
 def format_help() -> str:
     return (
         "Платёжный Компас помогает понять, сколько денег нужно отложить с каждого дохода, чтобы не пропустить платежи.\n\n"

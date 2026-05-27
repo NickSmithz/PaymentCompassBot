@@ -226,6 +226,30 @@ def test_old_expected_income_becomes_received_without_reserves():
     run(scenario())
 
 
+def test_return_flow_does_not_change_last_focus_income_id():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 20)
+            async with Session() as session:
+                user = await create_user(session)
+                focus_income = await create_income(session, user.id, today, status="received")
+                old_income = await create_income(session, user.id, today - timedelta(days=2), status="expected")
+                user.last_focus_income_id = focus_income.id
+                await session.commit()
+
+                await return_flow_service.apply_return_flow(session, user.id, today)
+                await session.refresh(user)
+                await session.refresh(old_income)
+
+                assert old_income.status == "received"
+                assert user.last_focus_income_id == focus_income.id
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
 def test_preview_does_not_change_database_before_confirmation():
     async def scenario():
         engine, Session = await make_session_factory()

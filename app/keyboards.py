@@ -219,3 +219,11 @@ def return_result_keyboard() -> InlineKeyboardMarkup:
         ]
     )
 
+
+def dev_reset_confirm_keyboard() -> InlineKeyboardMarkup:
+    return _inline([[("Да, сбросить состояние", "dev_confirm_reset_state")], [("Отмена", "dev_cancel")]])
+
+
+def dev_clear_all_confirm_keyboard() -> InlineKeyboardMarkup:
+    return _inline([[("Да, удалить всё", "dev_confirm_clear_all")], [("Отмена", "dev_cancel")]])
+

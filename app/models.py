@@ -26,6 +26,7 @@ class User(Base, TimestampMixin):
     reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_return_prompt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_focus_income_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     obligations: Mapped[list["Obligation"]] = relationship(back_populates="user")
 

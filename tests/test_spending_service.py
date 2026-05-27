@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models import Base, Income, ReserveTransaction, User
+from app.services import incomes as income_service
 from app.services import spending as spending_service
 
 
@@ -77,6 +78,31 @@ def test_multiple_received_incomes_today_are_summarized():
     run(scenario())
 
 
+def test_last_focus_income_has_priority_over_today_multiple_summary():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 27)
+            async with Session() as session:
+                user = await create_user(session)
+                sport = await create_income(session, user.id, 30000, today, title="Спорт Эталон")
+                yuneko = await create_income(session, user.id, 25000, today, title="Юнэко")
+                user.last_focus_income_id = yuneko.id
+                await create_auto_reserve(session, user.id, sport.id, 19808)
+                await create_auto_reserve(session, user.id, yuneko.id, 14365)
+                await session.commit()
+
+                summary = await spending_service.get_spending_summary(session, user.id, today)
+
+                assert summary["type"] == "focus_income"
+                assert summary["incomes"][0]["income_id"] == yuneko.id
+                assert summary["incomes"][0]["title"] == "Юнэко"
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
 def test_single_received_income_today_is_single_income_summary():
     async def scenario():
         engine, Session = await make_session_factory()
@@ -93,6 +119,29 @@ def test_single_received_income_today_is_single_income_summary():
                 assert summary["type"] == "single_income"
                 assert summary["incomes"][0]["income_id"] == income.id
                 assert summary["total_safe_to_spend"] == 10192 * 100
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_invalid_focus_income_falls_back_to_today_received_incomes():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 27)
+            async with Session() as session:
+                user = await create_user(session)
+                cancelled = await create_income(session, user.id, 10000, today, status="cancelled", title="Отменённый")
+                first = await create_income(session, user.id, 30000, today, title="Юнона")
+                second = await create_income(session, user.id, 25000, today, title="Аксенова")
+                user.last_focus_income_id = cancelled.id
+                await session.commit()
+
+                summary = await spending_service.get_spending_summary(session, user.id, today)
+
+                assert summary["type"] == "today_multiple"
+                assert {item["income_id"] for item in summary["incomes"]} == {first.id, second.id}
         finally:
             await engine.dispose()
 
@@ -158,6 +207,26 @@ def test_spending_summary_does_not_create_reserve_transactions():
                 after = await reserve_count(session)
 
                 assert before == after == 1
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_manual_status_change_to_received_updates_last_focus_income_id():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 27)
+            async with Session() as session:
+                user = await create_user(session)
+                income = await create_income(session, user.id, 25000, today, status="expected", title="Юнэко")
+                await session.commit()
+
+                await income_service.update_income_status(session, user.id, income.id, "received", today)
+                await session.refresh(user)
+
+                assert user.last_focus_income_id == income.id
         finally:
             await engine.dispose()
 

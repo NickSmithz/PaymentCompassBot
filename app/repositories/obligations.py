@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Obligation, User
@@ -45,6 +45,16 @@ async def deactivate(session: AsyncSession, obligation: Obligation) -> Obligatio
     await session.commit()
     await session.refresh(obligation)
     return obligation
+
+
+async def activate_all_by_user(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(sa_update(Obligation).where(Obligation.user_id == user_id).values(is_active=True))
+    return result.rowcount or 0
+
+
+async def delete_by_user(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(sa_delete(Obligation).where(Obligation.user_id == user_id))
+    return result.rowcount or 0
 
 
 async def list_due_for_reminders(session: AsyncSession, today: date) -> list[tuple[Obligation, User]]:

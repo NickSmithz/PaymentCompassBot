@@ -3,6 +3,7 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories import incomes as incomes_repo
+from app.repositories import users as users_repo
 
 
 async def create_income(session: AsyncSession, user_id: int, data: dict):
@@ -52,6 +53,7 @@ async def update_income(session: AsyncSession, user_id: int, income_id: int, dat
     income = await incomes_repo.update(session, income, data)
     if should_reprocess:
         await allocation_service.process_received_income(session, user_id, income.id, date.today())
+        await users_repo.update_last_focus_income_id(session, user_id, income.id)
     return income
 
 
@@ -71,6 +73,7 @@ async def update_income_status(session: AsyncSession, user_id: int, income_id: i
     reserves_released = False
     if new_status == "received":
         allocation_result = await allocation_service.process_received_income(session, user_id, income.id, today)
+        await users_repo.update_last_focus_income_id(session, user_id, income.id)
     elif old_status == "received" and new_status in {"expected", "cancelled"}:
         await allocation_service.release_reserves_for_income(session, user_id, income.id)
         reserves_released = True

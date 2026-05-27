@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import PaymentRecord
@@ -35,3 +35,8 @@ async def sum_paid_by_user(session: AsyncSession, user_id: int) -> int:
 async def list_by_user(session: AsyncSession, user_id: int) -> list[PaymentRecord]:
     result = await session.scalars(select(PaymentRecord).where(PaymentRecord.user_id == user_id).order_by(PaymentRecord.paid_at.desc()))
     return list(result)
+
+
+async def delete_by_user(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(sa_delete(PaymentRecord).where(PaymentRecord.user_id == user_id))
+    return result.rowcount or 0

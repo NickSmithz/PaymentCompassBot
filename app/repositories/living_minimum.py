@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import UserLivingMinimumSettings
@@ -41,3 +41,8 @@ async def update_settings(
     await session.commit()
     await session.refresh(settings)
     return settings
+
+
+async def delete_settings_by_user(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(sa_delete(UserLivingMinimumSettings).where(UserLivingMinimumSettings.user_id == user_id))
+    return result.rowcount or 0

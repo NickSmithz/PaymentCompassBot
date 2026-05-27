@@ -1,4 +1,4 @@
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Income, SavingsTransaction, UserSavingsSettings
@@ -122,3 +122,13 @@ async def get_total_savings(session: AsyncSession, user_id: int) -> int:
         )
     )
     return max(0, (saved or 0) - (released or 0))
+
+
+async def delete_transactions_by_user(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(sa_delete(SavingsTransaction).where(SavingsTransaction.user_id == user_id))
+    return result.rowcount or 0
+
+
+async def delete_settings_by_user(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(sa_delete(UserSavingsSettings).where(UserSavingsSettings.user_id == user_id))
+    return result.rowcount or 0

@@ -14,6 +14,7 @@ from app.formatters import format_allocation_result, format_income_added, format
 from app.keyboards import cancel_action_keyboard, income_status_keyboard, main_menu_keyboard, today_keyboard
 from app.services import allocation as allocation_service
 from app.services import incomes as income_service
+from app.services import users as user_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import AddIncomeStates
 from app.utils import parse_date, parse_money
@@ -92,6 +93,7 @@ async def add_income_finish(callback: CallbackQuery, state: FSMContext) -> None:
         income = await income_service.create_income(session, user.id, data)
         if income.status == "received":
             result = await allocation_service.process_received_income(session, user.id, income.id, parse_date("сегодня", user.timezone))
+            await user_service.update_last_focus_income_id(session, user.id, income.id)
             text = format_allocation_result(result)
         else:
             text = format_income_added(income)

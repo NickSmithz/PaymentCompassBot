@@ -24,3 +24,7 @@ async def update_user_settings(session: AsyncSession, user_id: int, **data):
     if user is None:
         return None
     return await users_repo.update_user(session, user, data)
+
+
+async def update_last_focus_income_id(session: AsyncSession, user_id: int, income_id: int | None):
+    return await users_repo.update_last_focus_income_id(session, user_id, income_id)

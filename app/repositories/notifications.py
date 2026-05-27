@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import NotificationLog
@@ -24,3 +24,8 @@ async def exists_log(session: AsyncSession, user_id: int, obligation_id: int, no
         )
     )
     return existing is not None
+
+
+async def delete_by_user(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(sa_delete(NotificationLog).where(NotificationLog.user_id == user_id))
+    return result.rowcount or 0

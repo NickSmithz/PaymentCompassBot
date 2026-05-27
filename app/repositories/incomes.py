@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete, func, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Income
@@ -16,6 +16,10 @@ async def create(session: AsyncSession, user_id: int, data: dict) -> Income:
 
 async def get_by_id(session: AsyncSession, user_id: int, income_id: int) -> Income | None:
     return await session.scalar(select(Income).where(Income.id == income_id, Income.user_id == user_id))
+
+
+async def get_by_id_for_user(session: AsyncSession, user_id: int, income_id: int) -> Income | None:
+    return await get_by_id(session, user_id, income_id)
 
 
 async def list_by_user(session: AsyncSession, user_id: int) -> list[Income]:
@@ -80,3 +84,13 @@ async def update(session: AsyncSession, income: Income, data: dict) -> Income:
 async def delete(session: AsyncSession, income: Income) -> None:
     await session.execute(sa_delete(Income).where(Income.id == income.id))
     await session.commit()
+
+
+async def reset_statuses_for_user(session: AsyncSession, user_id: int, status: str = "expected") -> int:
+    result = await session.execute(sa_update(Income).where(Income.user_id == user_id).values(status=status))
+    return result.rowcount or 0
+
+
+async def delete_by_user(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(sa_delete(Income).where(Income.user_id == user_id))
+    return result.rowcount or 0

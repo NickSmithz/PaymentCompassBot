@@ -22,6 +22,8 @@ async def init_db() -> None:
             await conn.execute(text("ALTER TABLE users ADD COLUMN last_activity_at DATETIME"))
         if "last_return_prompt_at" not in user_column_names:
             await conn.execute(text("ALTER TABLE users ADD COLUMN last_return_prompt_at DATETIME"))
+        if "last_focus_income_id" not in user_column_names:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN last_focus_income_id INTEGER"))
 
         columns = await conn.execute(text("PRAGMA table_info(reserve_transactions)"))
         column_names = {row[1] for row in columns.fetchall()}

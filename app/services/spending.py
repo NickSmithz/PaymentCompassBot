@@ -17,9 +17,9 @@ async def get_spending_summary(session: AsyncSession, user_id: int, today: date)
     today_incomes = await incomes_repo.list_received_by_date(session, user_id, today)
     if len(today_incomes) > 1:
         summary = _build_summary("today_multiple", [await _income_summary(session, user_id, income) for income in today_incomes])
-        _log_selection(user_id, summary["type"], today_incomes, last_focus_income_id)
+        _log_selection(user_id, today, summary["type"], today_incomes, last_focus_income_id)
         logger.info(
-            "Spending summary today incomes: user_id=%s income_ids=%s",
+            "Today multiple incomes selected: user_id=%s income_ids=%s",
             user_id,
             [income.id for income in today_incomes],
         )
@@ -27,23 +27,23 @@ async def get_spending_summary(session: AsyncSession, user_id: int, today: date)
 
     if len(today_incomes) == 1:
         summary = _build_summary("single_today", [await _income_summary(session, user_id, today_incomes[0])])
-        _log_selection(user_id, summary["type"], today_incomes, last_focus_income_id)
+        _log_selection(user_id, today, summary["type"], today_incomes, last_focus_income_id)
         return summary
 
     if last_focus_income_id is not None:
         focus_income = await incomes_repo.get_by_id_for_user(session, user_id, last_focus_income_id)
         if focus_income is not None and focus_income.status == "received":
             summary = _build_summary("focus_income", [await _income_summary(session, user_id, focus_income)])
-            _log_selection(user_id, summary["type"], today_incomes, last_focus_income_id)
+            _log_selection(user_id, today, summary["type"], today_incomes, last_focus_income_id)
             return summary
 
     last_income = await incomes_repo.get_last_received(session, user_id, days=60, today=today)
     if last_income is not None:
         summary = _build_summary("last_received", [await _income_summary(session, user_id, last_income)])
-        _log_selection(user_id, summary["type"], today_incomes, last_focus_income_id)
+        _log_selection(user_id, today, summary["type"], today_incomes, last_focus_income_id)
         return summary
 
-    _log_selection(user_id, "no_income", today_incomes, last_focus_income_id)
+    _log_selection(user_id, today, "no_income", today_incomes, last_focus_income_id)
     return {
         "type": "no_income",
         "incomes": [],
@@ -76,11 +76,12 @@ def _build_summary(summary_type: str, incomes: list[dict]) -> dict:
     }
 
 
-def _log_selection(user_id: int, summary_type: str, today_incomes: list, last_focus_income_id: int | None) -> None:
+def _log_selection(user_id: int, today: date, summary_type: str, today_incomes: list, last_focus_income_id: int | None) -> None:
     logger.info(
-        "Spending summary selection: user_id=%s type=%s today_received_count=%s last_focus_income_id=%s",
+        "Spending summary selection: user_id=%s today=%s today_received_count=%s last_focus_income_id=%s selected_type=%s",
         user_id,
-        summary_type,
+        today,
         len(today_incomes),
         last_focus_income_id,
+        summary_type,
     )

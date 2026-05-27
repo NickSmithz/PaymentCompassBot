@@ -85,17 +85,20 @@ def test_today_multiple_has_priority_over_last_focus_income():
             today = date(2026, 5, 27)
             async with Session() as session:
                 user = await create_user(session)
-                sport = await create_income(session, user.id, 30000, today, title="Спорт Эталон")
-                yuneko = await create_income(session, user.id, 25000, today, title="Юнэко")
-                user.last_focus_income_id = yuneko.id
-                await create_auto_reserve(session, user.id, sport.id, 19808)
-                await create_auto_reserve(session, user.id, yuneko.id, 14365)
+                sandblast = await create_income(session, user.id, 40000, today, title="Пескоструй")
+                sport = await create_income(session, user.id, 40000, today, title="СпортЭталон")
+                user.last_focus_income_id = sport.id
+                await create_auto_reserve(session, user.id, sandblast.id, 27529)
+                await create_auto_reserve(session, user.id, sport.id, 29621)
                 await session.commit()
 
                 summary = await spending_service.get_spending_summary(session, user.id, today)
 
                 assert summary["type"] == "today_multiple"
-                assert {item["income_id"] for item in summary["incomes"]} == {sport.id, yuneko.id}
+                assert {item["income_id"] for item in summary["incomes"]} == {sandblast.id, sport.id}
+                assert [item["title"] for item in summary["incomes"]] == ["Пескоструй", "СпортЭталон"]
+                assert summary["total_income"] == 80000 * 100
+                assert summary["total_reserved"] == 57150 * 100
         finally:
             await engine.dispose()
 
@@ -110,6 +113,7 @@ def test_single_received_income_today_is_single_today_summary():
             async with Session() as session:
                 user = await create_user(session)
                 income = await create_income(session, user.id, 30000, today, title="Юнона")
+                user.last_focus_income_id = income.id
                 await create_auto_reserve(session, user.id, income.id, 19808)
                 await session.commit()
 

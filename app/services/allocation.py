@@ -79,7 +79,13 @@ async def _calculate_received_income(
     obligations = await obligations_repo.list_active_by_user(session, user_id)
     settings = get_settings()
     horizon_end = max(today, income.income_date) + timedelta(days=settings.planning_horizon_days)
-    obligation_instances = obligation_service.generate_obligation_instances(obligations, today, horizon_end)
+    obligation_instances = await obligation_service.generate_relevant_obligation_instances(
+        session,
+        user_id,
+        obligations,
+        today,
+        horizon_end,
+    )
     future_incomes = await incomes_repo.list_future_by_user(session, user_id, income.income_date)
     existing_by_obligation_period: dict[tuple[int, date], int] = {}
 
@@ -128,10 +134,14 @@ async def _result_from_existing_reserves(
 ) -> AllocationResult:
     by_obligation_period = await reserves_repo.auto_reserved_by_obligation_period_for_income(session, user_id, income_id)
     items = []
-    for (obligation_id, period_date), amount in by_obligation_period.items():
+    seen_obligations = set()
+    for (obligation_id, period_date), amount in sorted(by_obligation_period.items(), key=lambda item: item[0][1]):
+        if obligation_id in seen_obligations:
+            continue
         obligation = await obligations_repo.get_by_id(session, user_id, obligation_id)
         if obligation is None or amount <= 0:
             continue
+        seen_obligations.add(obligation_id)
         items.append(
             AllocationItem(
                 obligation_id=obligation.id,
@@ -184,6 +194,16 @@ async def create_reserves_safely(
             continue
 
         period_date = item.period_date
+        if await obligation_service.has_earlier_uncovered_instance(session, user_id, obligation.id, period_date):
+            logger.info(
+                "Skip reserve: income_id=%s obligation_id=%s title=%s period_date=%s reason=%s",
+                income_id,
+                obligation.id,
+                obligation.title,
+                period_date,
+                "earlier instance is not covered",
+            )
+            continue
         current_reserved = await reserves_repo.sum_reserved_for_obligation_period(
             session,
             user_id,

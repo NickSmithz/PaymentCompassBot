@@ -1,3 +1,4 @@
+import logging
 from datetime import date, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,9 @@ from app.repositories import obligations as obligations_repo
 from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
 from app.utils import add_month
+
+
+logger = logging.getLogger(__name__)
 
 
 class ReservedAmountValidationError(ValueError):
@@ -49,6 +53,101 @@ def _instance_dto(obligation, due_date: date) -> ObligationCalculationDTO:
         is_recurring=obligation.is_recurring,
         period_date=due_date,
     )
+
+
+async def generate_relevant_obligation_instances(
+    session: AsyncSession,
+    user_id: int,
+    obligations,
+    horizon_start: date,
+    horizon_end: date,
+) -> list[ObligationCalculationDTO]:
+    instances: list[ObligationCalculationDTO] = []
+    for obligation in obligations:
+        selected = await _first_uncovered_instance(session, user_id, obligation, horizon_start, horizon_end)
+        if selected is not None:
+            instances.append(selected)
+    return instances
+
+
+async def has_earlier_uncovered_instance(
+    session: AsyncSession,
+    user_id: int,
+    obligation_id: int,
+    period_date: date,
+) -> bool:
+    obligation = await obligations_repo.get_by_id(session, user_id, obligation_id)
+    if obligation is None or not obligation.is_active:
+        return False
+
+    due_date = obligation.next_payment_date
+    if due_date >= period_date:
+        return False
+
+    while due_date < period_date:
+        remaining = await _remaining_for_period(session, user_id, obligation, due_date)
+        if remaining > 0:
+            logger.debug(
+                "Skip future instance: obligation_id=%s title=%s period_date=%s reason=earlier_instance_uncovered",
+                obligation.id,
+                obligation.title,
+                period_date,
+            )
+            return True
+        if not obligation.is_recurring:
+            break
+        due_date = add_month(due_date, obligation.payment_day)
+    return False
+
+
+async def _first_uncovered_instance(
+    session: AsyncSession,
+    user_id: int,
+    obligation,
+    horizon_start: date,
+    horizon_end: date,
+) -> ObligationCalculationDTO | None:
+    due_date = obligation.next_payment_date
+    while due_date <= horizon_end:
+        reserved = await reserves_repo.sum_reserved_for_obligation_period(session, user_id, obligation.id, due_date)
+        paid = await payments_repo.sum_paid_for_obligation_period(session, obligation.id, None, due_date)
+        required = obligation.monthly_payment_amount
+        remaining = max(0, required - reserved - paid)
+        selected = remaining > 0
+        logger.debug(
+            "Obligation instance check: obligation_id=%s title=%s period_date=%s required=%s reserved=%s paid=%s remaining=%s selected=%s",
+            obligation.id,
+            obligation.title,
+            due_date,
+            required,
+            reserved,
+            paid,
+            remaining,
+            selected,
+        )
+        if selected:
+            return ObligationCalculationDTO(
+                id=obligation.id,
+                title=obligation.title,
+                type=obligation.type,
+                monthly_payment_amount=obligation.monthly_payment_amount,
+                next_payment_date=due_date,
+                priority=obligation.priority,
+                reserved_amount=reserved,
+                paid_amount=paid,
+                is_recurring=obligation.is_recurring,
+                period_date=due_date,
+            )
+        if not obligation.is_recurring:
+            return None
+        due_date = add_month(due_date, obligation.payment_day)
+    return None
+
+
+async def _remaining_for_period(session: AsyncSession, user_id: int, obligation, period_date: date) -> int:
+    reserved = await reserves_repo.sum_reserved_for_obligation_period(session, user_id, obligation.id, period_date)
+    paid = await payments_repo.sum_paid_for_obligation_period(session, obligation.id, None, period_date)
+    return max(0, obligation.monthly_payment_amount - reserved - paid)
 
 
 async def create_obligation(session: AsyncSession, user_id: int, data: dict):
@@ -99,52 +198,31 @@ async def deactivate_obligation(session: AsyncSession, user_id: int, obligation_
 async def get_upcoming_obligations_summary(session: AsyncSession, user_id: int, today: date):
     obligations = await obligations_repo.list_active_by_user(session, user_id)
     horizon_end = today + timedelta(days=get_settings().planning_horizon_days)
+    instances = await generate_relevant_obligation_instances(session, user_id, obligations, today, horizon_end)
     items = []
-    for obligation in obligations:
-        instances = generate_obligation_instances([obligation], today, horizon_end)
-        if not instances:
+    obligations_by_id = {obligation.id: obligation for obligation in obligations}
+    for instance in instances:
+        obligation = obligations_by_id.get(instance.id)
+        if obligation is None:
             continue
-        selected = None
-        for instance in instances:
-            period_date = instance.period_date or instance.next_payment_date
-            raw_reserved = await reserves_repo.sum_reserved_for_obligation_period(
-                session,
-                user_id,
-                obligation.id,
-                period_date,
+        period_date = instance.period_date or instance.next_payment_date
+        paid = instance.paid_amount
+        max_allowed_reserved = max(0, instance.monthly_payment_amount - paid)
+        reserved = min(instance.reserved_amount, max_allowed_reserved)
+        remaining = calculate_remaining_amount(
+            ObligationCalculationDTO(
+                id=instance.id,
+                title=instance.title,
+                type=instance.type,
+                monthly_payment_amount=instance.monthly_payment_amount,
+                next_payment_date=instance.next_payment_date,
+                priority=instance.priority,
+                reserved_amount=reserved,
+                paid_amount=paid,
+                is_recurring=instance.is_recurring,
+                period_date=period_date,
             )
-            paid = await payments_repo.sum_paid_for_obligation_period(session, obligation.id, None, period_date)
-            max_allowed_reserved = max(0, obligation.monthly_payment_amount - paid)
-            reserved = min(raw_reserved, max_allowed_reserved)
-            remaining = calculate_remaining_amount(
-                ObligationCalculationDTO(
-                    id=obligation.id,
-                    title=obligation.title,
-                    type=obligation.type,
-                    monthly_payment_amount=obligation.monthly_payment_amount,
-                    next_payment_date=instance.next_payment_date,
-                    priority=obligation.priority,
-                    reserved_amount=reserved,
-                    paid_amount=paid,
-                    is_recurring=obligation.is_recurring,
-                    period_date=period_date,
-                )
-            )
-            selected = {
-                "instance": instance,
-                "period_date": period_date,
-                "reserved": reserved,
-                "paid": paid,
-                "remaining": remaining,
-            }
-            if remaining > 0:
-                break
-        if selected is None:
-            continue
-        instance = selected["instance"]
-        reserved = selected["reserved"]
-        paid = selected["paid"]
-        remaining = selected["remaining"]
+        )
         future_income_sum_before_due = await incomes_repo.sum_expected_between(
             session,
             user_id,
@@ -157,7 +235,7 @@ async def get_upcoming_obligations_summary(session: AsyncSession, user_id: int, 
                 "title": obligation.title,
                 "amount": obligation.monthly_payment_amount,
                 "date": instance.next_payment_date,
-                "period_date": selected["period_date"],
+                "period_date": period_date,
                 "reserved_amount": reserved,
                 "paid_amount": paid,
                 "remaining_amount": remaining,

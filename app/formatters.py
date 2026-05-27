@@ -57,6 +57,50 @@ def format_allocation_result(result) -> str:
     return "\n".join(lines)
 
 
+def format_spending_summary(summary) -> str:
+    if summary["type"] == "no_income":
+        return (
+            "Пока нет полученных доходов.\n\n"
+            "Добавь доход со статусом «Уже пришёл», и я рассчитаю, сколько можно тратить."
+        )
+
+    if summary["type"] == "today_multiple":
+        lines = ["💰 Сколько можно тратить?", "", "Сегодня получено несколько доходов:", ""]
+        for index, item in enumerate(summary["incomes"], start=1):
+            lines.extend(
+                [
+                    f"{index}. {item['title']} — {format_money(item['amount'])}",
+                    f"Зарезервировано на платежи: {format_money(item['reserved_amount'])}",
+                    f"Можно тратить: {format_money(item['safe_to_spend'])}",
+                    "",
+                ]
+            )
+        lines.extend(
+            [
+                "Итого за сегодня:",
+                f"Доходы: {format_money(summary['total_income'])}",
+                f"Зарезервировано на платежи: {format_money(summary['total_reserved'])}",
+                f"Можно тратить: {format_money(summary['total_safe_to_spend'])}",
+            ]
+        )
+        return "\n".join(lines).strip()
+
+    item = summary["incomes"][0]
+    if summary["type"] == "last_income":
+        return (
+            f"💰 Последний полученный доход: {item['title']} — {format_money(item['amount'])} "
+            f"от {format_date(item['income_date'])}\n\n"
+            f"Зарезервировано на платежи: {format_money(item['reserved_amount'])}\n"
+            f"Можно тратить: {format_money(item['safe_to_spend'])}"
+        )
+
+    return (
+        f"💰 Расчёт по доходу: {item['title']} — {format_money(item['amount'])}\n\n"
+        f"Нужно отложить на платежи: {format_money(item['reserved_amount'])}\n"
+        f"Можно тратить: {format_money(item['safe_to_spend'])}"
+    )
+
+
 def format_obligations_list(summary) -> str:
     items = summary["items"] if isinstance(summary, dict) else summary
     if not items:
@@ -64,13 +108,15 @@ def format_obligations_list(summary) -> str:
 
     lines = [BTN_UPCOMING_PAYMENTS, ""]
     for index, item in enumerate(items, start=1):
-        if item["paid_amount"] >= item["amount"]:
-            status = "🟢 оплачен"
-        elif item["remaining_amount"] == 0:
+        if item["remaining_amount"] == 0:
             status = "🟢 закрыт"
+        elif item["days_left"] < 0:
+            status = "🔴 просрочен"
         elif item["days_left"] <= 3:
             status = "🔴 высокий риск"
         elif item["days_left"] <= 7:
+            status = "🟡 нужно добрать"
+        elif not item.get("has_future_income_before_due", True):
             status = "🟡 нужно добрать"
         else:
             status = "⚪ впереди"

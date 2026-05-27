@@ -81,6 +81,27 @@ def test_multiple_payments_nearest_gets_priority():
     assert result.items[0].recommended_reserve == 10000 * 100
 
 
+def test_payments_are_sorted_by_urgency_buckets():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Доход", 50000, today),
+        [
+            obligation(1, "Дальше недели", 1000, today + timedelta(days=10)),
+            obligation(2, "До недели", 1000, today + timedelta(days=5)),
+            obligation(3, "До трёх дней", 1000, today + timedelta(days=2)),
+            obligation(4, "Просрочен", 1000, today - timedelta(days=1)),
+        ],
+        [],
+        today,
+    )
+    assert [item.title for item in result.items] == [
+        "Просрочен",
+        "До трёх дней",
+        "До недели",
+        "Дальше недели",
+    ]
+
+
 def test_not_enough_income_high_risk_and_reserve_all_income():
     today = date(2026, 5, 8)
     result = calculate_income_allocation(
@@ -284,3 +305,91 @@ def test_future_income_after_due_date_is_not_used_for_payment():
     )
     assert result.total_to_reserve == 10000 * 100
     assert result.items[0].recommended_reserve == 10000 * 100
+
+
+def test_last_income_before_due_reserves_all_current_income_when_not_enough():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Доход", 20000, today),
+        [obligation(1, "Платёж", 25000, today + timedelta(days=20))],
+        [],
+        today,
+    )
+    assert result.items[0].recommended_reserve == 20000 * 100
+
+
+def test_last_income_before_due_reserves_full_remaining_when_enough():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Доход", 30000, today),
+        [obligation(1, "Платёж", 25000, today + timedelta(days=20))],
+        [],
+        today,
+    )
+    assert result.items[0].recommended_reserve == 25000 * 100
+
+
+def test_future_income_keeps_proportional_allocation():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Доход", 30000, today),
+        [obligation(1, "Платёж", 20000, today + timedelta(days=20))],
+        [income(2, "Будущий доход", 30000, today + timedelta(days=10), "expected")],
+        today,
+    )
+    assert result.items[0].recommended_reserve == 10000 * 100
+
+
+def test_urgent_payment_with_future_income_keeps_proportional_allocation():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Доход", 10000, today),
+        [obligation(1, "Скорый платёж", 10000, today + timedelta(days=2))],
+        [income(2, "Будущий доход", 10000, today + timedelta(days=1), "expected")],
+        today,
+    )
+    assert result.items[0].recommended_reserve == 5000 * 100
+
+
+def test_distant_payment_gets_reserve_after_urgent_payment_when_money_remains():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Доход", 30000, today),
+        [
+            obligation(1, "Дальний платёж", 15000, today + timedelta(days=20)),
+            obligation(2, "Срочный платёж", 10000, today + timedelta(days=2)),
+        ],
+        [],
+        today,
+    )
+    assert result.items[0].title == "Срочный платёж"
+    assert result.items[0].recommended_reserve == 10000 * 100
+    assert result.items[1].title == "Дальний платёж"
+    assert result.items[1].recommended_reserve == 15000 * 100
+
+
+def test_closed_payment_is_not_included_in_allocation_items():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Доход", 30000, today),
+        [obligation(1, "Закрытый платёж", 25000, today + timedelta(days=20), reserved=25000)],
+        [],
+        today,
+    )
+    assert result.items == []
+
+
+def test_warning_when_no_future_income_before_due_and_money_still_missing():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Доход", 20000, today),
+        [obligation(1, "Аренда Кв", 25000, date(2026, 6, 5))],
+        [],
+        today,
+    )
+    assert result.items[0].recommended_reserve == 20000 * 100
+    assert any(
+        "До платежа «Аренда Кв» может не хватить денег: до 05.06.2026 больше нет ожидаемых доходов."
+        in warning
+        for warning in result.warnings
+    )

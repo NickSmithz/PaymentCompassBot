@@ -188,6 +188,10 @@ async def sum_auto_reserved_for_income(session: AsyncSession, user_id: int, inco
     return max(0, (reserve or 0) - (release or 0))
 
 
+async def sum_reserved_for_income(session: AsyncSession, user_id: int, income_id: int) -> int:
+    return await sum_auto_reserved_for_income(session, user_id, income_id)
+
+
 async def auto_reserved_by_obligation_for_income(
     session: AsyncSession,
     user_id: int,

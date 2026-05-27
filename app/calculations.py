@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from math import ceil
 
 
@@ -107,10 +107,21 @@ def calculate_reserved_adjustment(current_reserved: int, new_reserved: int) -> d
 def sort_obligations_by_priority(
     obligations: list[ObligationCalculationDTO], today: date
 ) -> list[ObligationCalculationDTO]:
+    def urgency_bucket(item: ObligationCalculationDTO) -> int:
+        remaining = calculate_remaining_amount(item)
+        days_left = (item.next_payment_date - today).days
+        if item.next_payment_date < today and remaining > 0:
+            return 0
+        if days_left <= 3 and remaining > 0:
+            return 1
+        if days_left <= 7 and remaining > 0:
+            return 2
+        return 3
+
     return sorted(
         obligations,
         key=lambda item: (
-            0 if item.next_payment_date < today and calculate_remaining_amount(item) > 0 else 1,
+            urgency_bucket(item),
             item.next_payment_date,
             item.priority,
             -item.monthly_payment_amount,
@@ -176,25 +187,29 @@ def calculate_income_allocation(
         total_available_until_due = current_income_remaining + future_sum
         recommended_reserve = 0
 
-        # Core MVP allocation: urgent and overdue payments are covered first;
-        # the rest is split between current and future incomes before the due date.
         if remaining_amount > 0 and current_income_remaining > 0:
-            urgent = obligation.next_payment_date < today or obligation.next_payment_date <= today + timedelta(days=3)
-            if future_sum <= 0 or urgent:
+            last_income_before_due = future_sum <= 0
+            if last_income_before_due:
                 recommended_reserve = min(remaining_amount, current_income_remaining)
             elif total_available_until_due > 0:
                 current_share = current_income_remaining / total_available_until_due
                 recommended_reserve = min(remaining_amount, current_income_remaining, ceil(remaining_amount * current_share))
 
+        remaining_after_recommendation = max(0, remaining_amount - recommended_reserve)
         uses_future_income = remaining_amount > recommended_reserve and future_sum > 0
         risk = calculate_obligation_risk(
             obligation=obligation,
-            remaining_amount=max(0, remaining_amount - recommended_reserve),
+            remaining_amount=remaining_after_recommendation,
             available_until_due=total_available_until_due,
             uses_future_income=uses_future_income,
             today=today,
         )
-        if remaining_amount > total_available_until_due:
+        if remaining_after_recommendation > 0 and future_sum <= 0:
+            warnings.append(
+                f"До платежа «{obligation.title}» может не хватить денег: "
+                f"до {obligation.next_payment_date.strftime('%d.%m.%Y')} больше нет ожидаемых доходов."
+            )
+        elif remaining_amount > total_available_until_due:
             warnings.append(f"До платежа «{obligation.title}» может не хватить денег.")
 
         items.append(

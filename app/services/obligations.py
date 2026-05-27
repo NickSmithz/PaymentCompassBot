@@ -3,6 +3,7 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.calculations import ObligationCalculationDTO, calculate_remaining_amount, calculate_reserved_adjustment
+from app.repositories import incomes as incomes_repo
 from app.repositories import obligations as obligations_repo
 from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
@@ -80,6 +81,12 @@ async def get_upcoming_obligations_summary(session: AsyncSession, user_id: int, 
                 is_recurring=obligation.is_recurring,
             )
         )
+        future_income_sum_before_due = await incomes_repo.sum_expected_between(
+            session,
+            user_id,
+            today,
+            obligation.next_payment_date,
+        )
         items.append(
             {
                 "id": obligation.id,
@@ -89,6 +96,8 @@ async def get_upcoming_obligations_summary(session: AsyncSession, user_id: int, 
                 "reserved_amount": reserved,
                 "paid_amount": paid,
                 "remaining_amount": remaining,
+                "future_income_sum_before_due": future_income_sum_before_due,
+                "has_future_income_before_due": future_income_sum_before_due > 0,
                 "days_left": (obligation.next_payment_date - today).days,
             }
         )

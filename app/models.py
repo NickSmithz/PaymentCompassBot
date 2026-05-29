@@ -62,7 +62,7 @@ class Income(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="expected")
     source: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_recurring: Mapped[bool] = mapped_column(Boolean, default=False)
-    recurrence_type: Mapped[str | None] = mapped_column(String(32), nullable=True, default="monthly")
+    recurrence_type: Mapped[str | None] = mapped_column(String(32), nullable=True, default=None)
     parent_income_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
 

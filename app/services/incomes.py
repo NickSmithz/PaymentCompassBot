@@ -17,7 +17,10 @@ async def create_income(session: AsyncSession, user_id: int, data: dict, now: da
     payload.setdefault("period_date", payload.get("income_date"))
     payload.setdefault("is_recurring", False)
     if payload.get("is_recurring"):
-        payload.setdefault("recurrence_type", "monthly")
+        payload["recurrence_type"] = "monthly"
+    else:
+        payload["recurrence_type"] = None
+        payload["parent_income_id"] = None
     if payload.get("status") == "received":
         payload["received_at"] = now or _now()
     else:

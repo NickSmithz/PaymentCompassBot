@@ -586,6 +586,25 @@ def format_dev_clear_all_result(summary) -> str:
     )
 
 
+def format_dev_make_incomes_recurring_result(summary) -> str:
+    lines = [
+        "✅ Доходы нормализованы",
+        "",
+        "Что изменено:",
+        f"Доходов сделано регулярными: {summary['incomes_made_recurring']}",
+        f"Создано будущих экземпляров: {summary['future_instances_created']}",
+    ]
+    if summary["future_instances_created"] == 0:
+        lines.append("Все нужные экземпляры уже были созданы.")
+    lines.extend(
+        [
+            "",
+            "Теперь открой «💵 Мои доходы» и проверь, что появились доходы следующего месяца.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def format_help() -> str:
     return (
         "Платёжный Компас помогает понять, сколько денег нужно отложить с каждого дохода, чтобы не пропустить платежи.\n\n"

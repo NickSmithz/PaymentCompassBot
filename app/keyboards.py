@@ -231,3 +231,9 @@ def dev_reset_confirm_keyboard() -> InlineKeyboardMarkup:
 def dev_clear_all_confirm_keyboard() -> InlineKeyboardMarkup:
     return _inline([[("Да, удалить всё", "dev_confirm_clear_all")], [("Отмена", "dev_cancel")]])
 
+
+def dev_make_incomes_recurring_confirm_keyboard() -> InlineKeyboardMarkup:
+    return _inline(
+        [[("Да, сделать регулярными", "dev_confirm_make_incomes_recurring")], [("Отмена", "dev_cancel")]]
+    )
+

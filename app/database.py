@@ -32,7 +32,7 @@ async def init_db() -> None:
         if "is_recurring" not in income_column_names:
             await conn.execute(text("ALTER TABLE incomes ADD COLUMN is_recurring BOOLEAN DEFAULT 0"))
         if "recurrence_type" not in income_column_names:
-            await conn.execute(text("ALTER TABLE incomes ADD COLUMN recurrence_type VARCHAR(32) DEFAULT 'monthly'"))
+            await conn.execute(text("ALTER TABLE incomes ADD COLUMN recurrence_type VARCHAR(32)"))
         if "parent_income_id" not in income_column_names:
             await conn.execute(text("ALTER TABLE incomes ADD COLUMN parent_income_id INTEGER"))
         if "period_date" not in income_column_names:

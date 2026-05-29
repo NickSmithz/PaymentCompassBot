@@ -8,6 +8,7 @@ from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
 from app.repositories import savings as savings_repo
 from app.repositories import users as users_repo
+from app.services import income_recurrence
 
 
 async def reset_user_state_for_testing(session: AsyncSession, user_id: int) -> dict:
@@ -56,4 +57,13 @@ async def clear_user_data_for_testing(session: AsyncSession, user_id: int) -> di
         "savings_transactions_deleted": savings_transactions_deleted,
         "notification_logs_deleted": notification_logs_deleted,
         "settings_deleted": savings_settings_deleted + living_settings_deleted,
+    }
+
+
+async def make_all_incomes_recurring_for_testing(session: AsyncSession, user_id: int, today) -> dict:
+    summary = await income_recurrence.normalize_all_existing_incomes_as_recurring(session, user_id)
+    created = await income_recurrence.ensure_income_instances(session, user_id, today)
+    return {
+        "incomes_made_recurring": summary["incomes_made_recurring"],
+        "future_instances_created": len(created),
     }

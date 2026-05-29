@@ -104,7 +104,8 @@ async def _ask_income_recurrence(message: Message, state: FSMContext) -> None:
 @router.callback_query(AddIncomeStates.is_recurring, F.data.startswith("income_recurring:"))
 async def add_income_recurring(callback: CallbackQuery, state: FSMContext) -> None:
     value = callback.data.split(":", 1)[1]
-    await state.update_data(is_recurring=value == "yes", recurrence_type="monthly")
+    is_recurring = value == "yes"
+    await state.update_data(is_recurring=is_recurring, recurrence_type="monthly" if is_recurring else None)
     await state.set_state(AddIncomeStates.status)
     await callback.message.answer(
         "Этот доход уже пришёл или ожидается?",

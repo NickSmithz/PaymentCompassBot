@@ -32,6 +32,14 @@ async def list_by_user(session: AsyncSession, user_id: int) -> list[Income]:
     return list(result)
 
 
+async def list_all(session: AsyncSession, user_id: int | None = None) -> list[Income]:
+    query = select(Income)
+    if user_id is not None:
+        query = query.where(Income.user_id == user_id)
+    result = await session.scalars(query.order_by(Income.user_id.asc(), Income.income_date.asc(), Income.id.asc()))
+    return list(result)
+
+
 async def list_recurring_roots(session: AsyncSession, user_id: int) -> list[Income]:
     result = await session.scalars(
         select(Income)

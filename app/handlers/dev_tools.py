@@ -1,11 +1,23 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.formatters import format_dev_clear_all_result, format_dev_reset_state_result
-from app.keyboards import dev_clear_all_confirm_keyboard, dev_reset_confirm_keyboard, main_menu_keyboard
+from app.formatters import (
+    format_dev_clear_all_result,
+    format_dev_make_incomes_recurring_result,
+    format_dev_reset_state_result,
+)
+from app.keyboards import (
+    dev_clear_all_confirm_keyboard,
+    dev_make_incomes_recurring_confirm_keyboard,
+    dev_reset_confirm_keyboard,
+    main_menu_keyboard,
+)
 from app.services import dev_tools as dev_tools_service
 from app.services.users import get_or_create_user_from_telegram
 
@@ -36,6 +48,18 @@ DEV_CLEAR_ALL_CONFIRM_TEXT = (
     "Продолжить?"
 )
 
+DEV_MAKE_INCOMES_RECURRING_CONFIRM_TEXT = (
+    "⚠️ DEV-нормализация доходов\n\n"
+    "Это действие сделает все существующие доходы регулярными:\n"
+    "— is_recurring=True;\n"
+    "— recurrence_type=monthly;\n"
+    "— parent_income_id будет заполнен;\n"
+    "— period_date будет заполнен.\n\n"
+    "После этого бот создаст будущие ежемесячные экземпляры доходов.\n\n"
+    "Резервы и оплаты не изменятся.\n\n"
+    "Продолжить?"
+)
+
 
 def _dev_mode_enabled() -> bool:
     return get_settings().dev_mode
@@ -55,6 +79,17 @@ async def dev_clear_all(message: Message) -> None:
         await message.answer(DEV_ONLY_TEXT, reply_markup=main_menu_keyboard())
         return
     await message.answer(DEV_CLEAR_ALL_CONFIRM_TEXT, reply_markup=dev_clear_all_confirm_keyboard())
+
+
+@router.message(Command("dev_make_all_incomes_recurring"))
+async def dev_make_all_incomes_recurring(message: Message) -> None:
+    if not _dev_mode_enabled():
+        await message.answer(DEV_ONLY_TEXT, reply_markup=main_menu_keyboard())
+        return
+    await message.answer(
+        DEV_MAKE_INCOMES_RECURRING_CONFIRM_TEXT,
+        reply_markup=dev_make_incomes_recurring_confirm_keyboard(),
+    )
 
 
 @router.callback_query(F.data == "dev_confirm_reset_state")
@@ -91,6 +126,25 @@ async def confirm_dev_clear_all(callback: CallbackQuery) -> None:
         summary = await dev_tools_service.clear_user_data_for_testing(session, user.id)
     await callback.message.answer(format_dev_clear_all_result(summary), reply_markup=main_menu_keyboard())
     await callback.answer("DEV-очистка выполнена")
+
+
+@router.callback_query(F.data == "dev_confirm_make_incomes_recurring")
+async def confirm_dev_make_all_incomes_recurring(callback: CallbackQuery) -> None:
+    if not _dev_mode_enabled():
+        await callback.message.answer(DEV_ONLY_TEXT, reply_markup=main_menu_keyboard())
+        await callback.answer()
+        return
+    async with SessionLocal() as session:
+        user = await get_or_create_user_from_telegram(
+            session,
+            callback.from_user.id,
+            callback.from_user.username,
+            callback.from_user.first_name,
+        )
+        now = datetime.now(ZoneInfo(user.timezone or get_settings().timezone))
+        summary = await dev_tools_service.make_all_incomes_recurring_for_testing(session, user.id, now.date())
+    await callback.message.answer(format_dev_make_incomes_recurring_result(summary), reply_markup=main_menu_keyboard())
+    await callback.answer("Доходы нормализованы")
 
 
 @router.callback_query(F.data == "dev_cancel")

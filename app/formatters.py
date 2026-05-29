@@ -14,16 +14,19 @@ def _status_label(status: str) -> str:
 
 
 def format_allocation_result(result) -> str:
+    reserved_items = [item for item in result.items if item.recommended_reserve > 0]
+    display_total_reserved = sum(item.recommended_reserve for item in reserved_items)
+    display_safe_to_spend = max(0, result.income_amount - display_total_reserved - result.actual_savings_amount)
     lines = [
         f"💰 Расчёт по доходу: {result.income_title} — {format_money(result.income_amount)}",
         "",
-        f"Нужно отложить на платежи: {format_money(result.total_to_reserve)}",
+        f"Нужно отложить на платежи: {format_money(display_total_reserved)}",
     ]
     if result.savings_enabled:
         lines.append(f"В копилку: {format_money(result.actual_savings_amount)}")
     lines.extend(
         [
-            f"Можно тратить: {format_money(result.safe_to_spend)}",
+            f"Можно тратить: {format_money(display_safe_to_spend)}",
             f"Риск просрочки: {risk_emoji(result.overall_risk)} {risk_label(result.overall_risk)}",
         ]
     )
@@ -32,9 +35,8 @@ def format_allocation_result(result) -> str:
         if result.living_minimum_gap > 0:
             lines.append(f"Не хватает до минимума: {format_money(result.living_minimum_gap)}")
         else:
-            lines.append(f"Запас сверх минимума: {format_money(result.safe_to_spend - result.living_minimum_amount)}")
+            lines.append(f"Запас сверх минимума: {format_money(display_safe_to_spend - result.living_minimum_amount)}")
 
-    reserved_items = [item for item in result.items if item.recommended_reserve > 0]
     if reserved_items:
         lines.extend(["", "Куда отложить:"])
         for index, item in enumerate(reserved_items, start=1):

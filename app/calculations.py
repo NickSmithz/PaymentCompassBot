@@ -96,6 +96,36 @@ def calculate_safe_to_spend(income_amount: int, total_to_reserve: int) -> int:
     return max(0, income_amount - total_to_reserve)
 
 
+def normalize_money_for_display(amount: int) -> int:
+    return (max(0, amount) // 100) * 100
+
+
+def normalize_allocation_totals(result: AllocationResult) -> AllocationResult:
+    income_remaining = max(0, result.income_amount)
+    normalized_items: list[AllocationItem] = []
+    for item in result.items:
+        amount = min(normalize_money_for_display(item.recommended_reserve), income_remaining)
+        normalized_items.append(
+            AllocationItem(
+                obligation_id=item.obligation_id,
+                title=item.title,
+                due_date=item.due_date,
+                period_date=item.period_date,
+                required_amount=item.required_amount,
+                remaining_amount=item.remaining_amount,
+                recommended_reserve=amount,
+                risk=item.risk,
+            )
+        )
+        income_remaining -= amount
+
+    result.items = normalized_items
+    result.total_to_reserve = sum(item.recommended_reserve for item in normalized_items)
+    result.safe_to_spend = calculate_safe_to_spend(result.income_amount, result.total_to_reserve)
+    result.overall_risk = calculate_overall_risk(normalized_items)
+    return result
+
+
 def calculate_reserve_to_create(recommended_reserve: int, current_remaining: int) -> int:
     return max(0, min(recommended_reserve, current_remaining))
 
@@ -199,6 +229,7 @@ def calculate_income_allocation(
             elif total_available_until_due > 0:
                 current_share = current_income_remaining / total_available_until_due
                 recommended_reserve = min(remaining_amount, current_income_remaining, ceil(remaining_amount * current_share))
+            recommended_reserve = normalize_money_for_display(recommended_reserve)
 
         remaining_after_recommendation = max(0, remaining_amount - recommended_reserve)
         uses_future_income = remaining_amount > recommended_reserve and future_sum > 0
@@ -231,17 +262,17 @@ def calculate_income_allocation(
         )
         current_income_remaining -= recommended_reserve
 
-    total_to_reserve = sum(item.recommended_reserve for item in items)
-    return AllocationResult(
+    result = AllocationResult(
         income_id=current_income.id,
         income_title=current_income.title,
         income_amount=current_income.amount,
-        total_to_reserve=total_to_reserve,
-        safe_to_spend=calculate_safe_to_spend(current_income.amount, total_to_reserve),
+        total_to_reserve=0,
+        safe_to_spend=0,
         overall_risk=calculate_overall_risk(items),
         items=items,
         warnings=warnings,
     )
+    return normalize_allocation_totals(result)
 
 
 def calculate_purchase_impact(

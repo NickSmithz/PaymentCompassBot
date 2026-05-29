@@ -11,10 +11,10 @@ from app.calculations import (
     IncomeCalculationDTO,
     ObligationCalculationDTO,
     calculate_income_allocation,
-    calculate_overall_risk,
     calculate_remaining_amount,
     calculate_reserve_to_create,
-    calculate_safe_to_spend,
+    normalize_allocation_totals,
+    normalize_money_for_display,
 )
 from app.repositories import incomes as incomes_repo
 from app.repositories import obligations as obligations_repo
@@ -34,10 +34,24 @@ def _income_dto(income) -> IncomeCalculationDTO:
 
 def _rebuild_result_with_items(result: AllocationResult, items: list[AllocationItem]) -> AllocationResult:
     result.items = items
-    result.total_to_reserve = sum(item.recommended_reserve for item in items)
-    result.safe_to_spend = calculate_safe_to_spend(result.income_amount, result.total_to_reserve)
-    result.overall_risk = calculate_overall_risk(items)
+    normalize_allocation_totals(result)
+    _log_allocation_total_mismatch(result)
     return result
+
+
+def _log_allocation_total_mismatch(result: AllocationResult) -> None:
+    items_sum = sum(item.recommended_reserve for item in result.items)
+    check_sum = items_sum + result.safe_to_spend + result.actual_savings_amount
+    if check_sum != result.income_amount:
+        logger.warning(
+            "Allocation total mismatch: income_id=%s income_amount=%s items_sum=%s safe_to_spend=%s check_sum=%s diff=%s",
+            result.income_id,
+            result.income_amount,
+            items_sum,
+            result.safe_to_spend,
+            check_sum,
+            result.income_amount - check_sum,
+        )
 
 
 async def _obligation_dto(session: AsyncSession, user_id: int, instance: ObligationCalculationDTO) -> ObligationCalculationDTO:
@@ -229,7 +243,7 @@ async def create_reserves_safely(
                 period_date=period_date,
             )
         )
-        amount_to_create = calculate_reserve_to_create(item.recommended_reserve, current_remaining)
+        amount_to_create = normalize_money_for_display(calculate_reserve_to_create(item.recommended_reserve, current_remaining))
         logger.info(
             "RESERVE_ATTEMPT user_id=%s income_id=%s obligation_id=%s title=%s recommended=%s current_reserved=%s paid=%s current_remaining=%s amount_to_create=%s",
             user_id,
@@ -345,6 +359,7 @@ async def _apply_savings_and_living_minimum(
     result.living_minimum_enabled = living["is_enabled"]
     result.living_minimum_amount = living["amount"] if living["is_enabled"] else 0
     result.living_minimum_gap = max(0, result.living_minimum_amount - result.safe_to_spend)
+    _log_allocation_total_mismatch(result)
     return result
 
 

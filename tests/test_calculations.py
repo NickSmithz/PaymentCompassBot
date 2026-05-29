@@ -1,6 +1,8 @@
 from datetime import date, timedelta
 
 from app.calculations import (
+    AllocationItem,
+    AllocationResult,
     IncomeCalculationDTO,
     ObligationCalculationDTO,
     calculate_income_allocation,
@@ -8,7 +10,9 @@ from app.calculations import (
     calculate_reserved_adjustment,
     calculate_reserved_balance,
     calculate_reserve_to_create,
+    normalize_allocation_totals,
 )
+from app.formatters import format_allocation_result
 
 
 def income(id_: int, title: str, amount_rub: int, day: date, status: str = "received"):
@@ -393,3 +397,131 @@ def test_warning_when_no_future_income_before_due_and_money_still_missing():
         in warning
         for warning in result.warnings
     )
+
+
+def _allocation_item(amount_rub: int, obligation_id: int = 1) -> AllocationItem:
+    due = date(2026, 7, 30)
+    return AllocationItem(
+        obligation_id=obligation_id,
+        title=f"Payment {obligation_id}",
+        due_date=due,
+        period_date=due,
+        required_amount=amount_rub * 100,
+        remaining_amount=amount_rub * 100,
+        recommended_reserve=amount_rub * 100,
+        risk="low",
+    )
+
+
+def test_allocation_totals_use_sum_of_displayed_items_yunona_case():
+    result = AllocationResult(
+        income_id=1,
+        income_title="Юнона",
+        income_amount=30000 * 100,
+        total_to_reserve=0,
+        safe_to_spend=0,
+        overall_risk="low",
+        items=[
+            _allocation_item(1695, 1),
+            _allocation_item(111, 2),
+            _allocation_item(1481, 3),
+            _allocation_item(515, 4),
+            _allocation_item(95, 5),
+            _allocation_item(1029, 6),
+        ],
+    )
+
+    normalize_allocation_totals(result)
+
+    assert result.total_to_reserve == 4926 * 100
+    assert result.safe_to_spend == 25074 * 100
+    assert result.total_to_reserve + result.safe_to_spend == result.income_amount
+
+
+def test_allocation_totals_use_sum_of_displayed_items_yazdorov_case():
+    result = AllocationResult(
+        income_id=1,
+        income_title="ЯЗдоров",
+        income_amount=48000 * 100,
+        total_to_reserve=0,
+        safe_to_spend=0,
+        overall_risk="low",
+        items=[
+            _allocation_item(4302, 1),
+            _allocation_item(281, 2),
+            _allocation_item(3328, 3),
+            _allocation_item(1094, 4),
+            _allocation_item(203, 5),
+            _allocation_item(2093, 6),
+        ],
+    )
+
+    normalize_allocation_totals(result)
+
+    assert result.total_to_reserve == 11301 * 100
+    assert result.safe_to_spend == 36699 * 100
+    assert result.total_to_reserve + result.safe_to_spend == result.income_amount
+
+
+def test_allocation_totals_floor_item_kopeks_to_user_visible_rubles():
+    due = date(2026, 7, 30)
+    result = AllocationResult(
+        income_id=1,
+        income_title="Доход",
+        income_amount=30000 * 100,
+        total_to_reserve=0,
+        safe_to_spend=0,
+        overall_risk="low",
+        items=[
+            AllocationItem(1, "A", due, due, 2000 * 100, 2000 * 100, 1695 * 100 + 99, "low"),
+            AllocationItem(2, "B", due, due, 2000 * 100, 2000 * 100, 111 * 100 + 99, "low"),
+        ],
+    )
+
+    normalize_allocation_totals(result)
+
+    assert [item.recommended_reserve for item in result.items] == [1695 * 100, 111 * 100]
+    assert result.total_to_reserve == 1806 * 100
+    assert result.safe_to_spend == 28194 * 100
+
+
+def test_allocation_totals_do_not_make_negative_safe_to_spend():
+    result = AllocationResult(
+        income_id=1,
+        income_title="Доход",
+        income_amount=10000 * 100,
+        total_to_reserve=0,
+        safe_to_spend=0,
+        overall_risk="low",
+        items=[_allocation_item(12000, 1)],
+    )
+
+    normalize_allocation_totals(result)
+
+    assert result.total_to_reserve == 10000 * 100
+    assert result.items[0].recommended_reserve == 10000 * 100
+    assert result.safe_to_spend == 0
+
+
+def test_allocation_formatter_total_matches_displayed_items():
+    result = AllocationResult(
+        income_id=1,
+        income_title="Юнона",
+        income_amount=30000 * 100,
+        total_to_reserve=4929 * 100,
+        safe_to_spend=25070 * 100,
+        overall_risk="low",
+        items=[
+            _allocation_item(1695, 1),
+            _allocation_item(111, 2),
+            _allocation_item(1481, 3),
+            _allocation_item(515, 4),
+            _allocation_item(95, 5),
+            _allocation_item(1029, 6),
+        ],
+    )
+
+    text = format_allocation_result(result)
+
+    assert "Нужно отложить на платежи: 4 926 ₽" in text
+    assert "Можно тратить: 25 074 ₽" in text

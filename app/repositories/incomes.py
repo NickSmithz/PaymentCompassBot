@@ -32,6 +32,22 @@ async def list_by_user(session: AsyncSession, user_id: int) -> list[Income]:
     return list(result)
 
 
+async def list_incomes_for_status_change(session: AsyncSession, user_id: int) -> list[Income]:
+    result = await session.scalars(
+        select(Income)
+        .where(
+            Income.user_id == user_id,
+            Income.status == "expected",
+        )
+        .order_by(
+            func.coalesce(Income.period_date, Income.income_date).asc(),
+            Income.income_date.asc(),
+            Income.id.asc(),
+        )
+    )
+    return list(result)
+
+
 async def list_all(session: AsyncSession, user_id: int | None = None) -> list[Income]:
     query = select(Income)
     if user_id is not None:

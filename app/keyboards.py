@@ -15,6 +15,7 @@ from app.texts import (
     BTN_SETTINGS,
     BTN_UPCOMING_PAYMENTS,
 )
+from app.utils import format_money
 
 
 def main_menu_keyboard(show_im_back: bool = False) -> ReplyKeyboardMarkup:
@@ -77,6 +78,16 @@ def edit_menu_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def edit_income_action_keyboard() -> InlineKeyboardMarkup:
+    return _inline(
+        [
+            [("Изменить статус дохода", "edit:income_status")],
+            [("Редактировать данные дохода", "edit:income_fields")],
+            [(BTN_BACK, "edit:back")],
+        ]
+    )
+
+
 def obligations_inline_keyboard(obligations, prefix: str) -> InlineKeyboardMarkup:
     rows = [[(obligation.title, f"{prefix}:{obligation.id}")] for obligation in obligations]
     rows.append([(BTN_BACK, "back")])
@@ -86,6 +97,17 @@ def obligations_inline_keyboard(obligations, prefix: str) -> InlineKeyboardMarku
 def incomes_inline_keyboard(incomes, prefix: str) -> InlineKeyboardMarkup:
     rows = [[(f"{income.title} · {income.income_date.strftime('%d.%m.%Y')}", f"{prefix}:{income.id}")] for income in incomes]
     rows.append([(BTN_BACK, "back")])
+    return _inline(rows)
+
+
+def income_status_change_button_text(income) -> str:
+    display_date = income.period_date or income.income_date
+    return f"{display_date.strftime('%d.%m')} — {income.title} — {format_money(income.amount)}"
+
+
+def income_status_change_keyboard(incomes) -> InlineKeyboardMarkup:
+    rows = [[(income_status_change_button_text(income), f"edit_inc_status_choose:{income.id}")] for income in incomes]
+    rows.append([(BTN_BACK, "edit:incomes")])
     return _inline(rows)
 
 

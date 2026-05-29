@@ -20,9 +20,11 @@ from app.formatters import (
 )
 from app.keyboards import (
     cancel_action_keyboard,
+    edit_income_action_keyboard,
     edit_income_fields_keyboard,
     edit_menu_keyboard,
     edit_obligation_fields_keyboard,
+    income_status_change_keyboard,
     income_status_edit_keyboard,
     incomes_inline_keyboard,
     main_menu_keyboard,
@@ -90,6 +92,13 @@ async def edit_back(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "edit:incomes")
 async def edit_incomes(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.message.answer("Что нужно изменить в доходах?", reply_markup=edit_income_action_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "edit:income_fields")
+async def edit_income_fields_list(callback: CallbackQuery, state: FSMContext) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
         await income_recurrence.ensure_income_instances(session, user.id, _today(user.timezone))
@@ -99,6 +108,26 @@ async def edit_incomes(callback: CallbackQuery, state: FSMContext) -> None:
     else:
         await state.set_state(EditIncomeStates.choose)
         await callback.message.answer("Выбери доход:", reply_markup=incomes_inline_keyboard(incomes, "edit_inc"))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "edit:income_status")
+async def edit_income_status_list(callback: CallbackQuery, state: FSMContext) -> None:
+    async with SessionLocal() as session:
+        user = await get_or_create_user_from_telegram(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
+        await income_recurrence.ensure_income_instances(session, user.id, _today(user.timezone))
+        incomes = await income_service.list_incomes_for_status_change(session, user.id)
+    if not incomes:
+        await state.clear()
+        await callback.message.answer(
+            "Нет ожидаемых доходов для изменения статуса.\n\n"
+            "Доходы, которые уже отмечены как полученные, скрыты из этого списка, чтобы не путать текущие и прошлые поступления.\n\n"
+            "Добавь новый доход или открой «Мои доходы», чтобы посмотреть историю.",
+            reply_markup=main_menu_keyboard(),
+        )
+    else:
+        await state.set_state(EditIncomeStates.choose)
+        await callback.message.answer("Выбери ожидаемый доход:", reply_markup=income_status_change_keyboard(incomes))
     await callback.answer()
 
 
@@ -122,6 +151,14 @@ async def edit_income_choose(callback: CallbackQuery, state: FSMContext) -> None
     await state.update_data(income_id=income_id)
     await state.set_state(EditIncomeStates.choose_field)
     await callback.message.answer("Что изменить?", reply_markup=edit_income_fields_keyboard(income_id))
+    await callback.answer()
+
+
+@router.callback_query(EditIncomeStates.choose, F.data.startswith("edit_inc_status_choose:"))
+async def edit_income_status_choose(callback: CallbackQuery, state: FSMContext) -> None:
+    income_id = int(callback.data.split(":")[1])
+    await state.clear()
+    await callback.message.answer("Выбери новый статус дохода:", reply_markup=income_status_edit_keyboard(income_id))
     await callback.answer()
 
 

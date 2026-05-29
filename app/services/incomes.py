@@ -59,6 +59,10 @@ async def list_incomes(session: AsyncSession, user_id: int):
     return await incomes_repo.list_by_user(session, user_id)
 
 
+async def list_incomes_for_status_change(session: AsyncSession, user_id: int):
+    return await incomes_repo.list_incomes_for_status_change(session, user_id)
+
+
 async def get_user_incomes_summary(session: AsyncSession, user_id: int, today: date | None = None):
     from app.services import income_recurrence
 

@@ -1,5 +1,11 @@
-from dataclasses import dataclass, field
+import logging
+from dataclasses import dataclass, field, replace
 from datetime import date
+
+from app.utils import add_month
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,16 @@ class AllocationResult:
     living_minimum_gap: int = 0
     items: list[AllocationItem] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CashflowGapDTO:
+    obligation_id: int
+    title: str
+    period_date: date
+    due_date: date
+    gap_amount: int
+    reason: str
 
 
 @dataclass
@@ -216,6 +232,306 @@ def _current_income_share_for_obligation(
     return distribute_amount_without_rounding_loss(total_to_distribute, weights)[0] * 100
 
 
+def _item_key(item: AllocationItem | ObligationCalculationDTO) -> tuple[int, date]:
+    if isinstance(item, AllocationItem):
+        return (item.obligation_id, item.period_date)
+    return (item.id, item.period_date or item.next_payment_date)
+
+
+def _expected_future_income_sum_until(
+    future_incomes: list[IncomeCalculationDTO],
+    current_income_date: date,
+    due_date: date,
+) -> int:
+    return sum(
+        income.amount
+        for income in future_incomes
+        if income.status == "expected"
+        and income.income_date > current_income_date
+        and income.income_date <= due_date
+    )
+
+
+def _allocated_by_obligation_period(current_reserves: list[AllocationItem]) -> dict[tuple[int, date], int]:
+    allocated: dict[tuple[int, date], int] = {}
+    for item in current_reserves:
+        key = _item_key(item)
+        allocated[key] = allocated.get(key, 0) + item.recommended_reserve
+    return allocated
+
+
+def _remaining_after_current_allocation(
+    instance: ObligationCalculationDTO,
+    allocated_by_key: dict[tuple[int, date], int],
+) -> int:
+    return max(0, calculate_remaining_amount(instance) - allocated_by_key.get(_item_key(instance), 0))
+
+
+def _expand_cashflow_payment_instances(
+    payment_instances: list[ObligationCalculationDTO],
+    allocated_by_key: dict[tuple[int, date], int],
+    horizon_end: date,
+) -> list[ObligationCalculationDTO]:
+    expanded: list[ObligationCalculationDTO] = []
+    seen: set[tuple[int, date]] = set()
+
+    for instance in payment_instances:
+        current = instance
+        preferred_day = (instance.period_date or instance.next_payment_date).day
+
+        while current.next_payment_date <= horizon_end:
+            key = _item_key(current)
+            if key not in seen:
+                expanded.append(current)
+                seen.add(key)
+
+            if not current.is_recurring or _remaining_after_current_allocation(current, allocated_by_key) > 0:
+                break
+
+            next_due = add_month(current.next_payment_date, preferred_day)
+            current = replace(
+                instance,
+                next_payment_date=next_due,
+                period_date=next_due,
+                reserved_amount=0,
+                paid_amount=0,
+            )
+
+    return expanded
+
+
+def _cashflow_horizon_end(payment_instances: list[ObligationCalculationDTO]) -> date:
+    dates = [instance.next_payment_date for instance in payment_instances]
+    dates.extend(add_month(instance.next_payment_date) for instance in payment_instances if instance.is_recurring)
+    return max(dates)
+
+
+def calculate_future_cashflow_gaps(
+    current_income_id: int,
+    current_income_amount: int,
+    current_income_date: date,
+    payment_instances: list[ObligationCalculationDTO],
+    future_incomes: list[IncomeCalculationDTO],
+    current_reserves: list[AllocationItem],
+    horizon_end: date,
+) -> list[CashflowGapDTO]:
+    allocated_by_key = _allocated_by_obligation_period(current_reserves)
+    payment_instances = _expand_cashflow_payment_instances(payment_instances, allocated_by_key, horizon_end)
+    instances = [
+        instance
+        for instance in payment_instances
+        if instance.next_payment_date <= horizon_end
+        and _remaining_after_current_allocation(instance, allocated_by_key) > 0
+    ]
+    instances = sorted(
+        instances,
+        key=lambda item: (item.next_payment_date, item.priority, item.id),
+    )
+    gaps: list[CashflowGapDTO] = []
+    for due_date in sorted({instance.next_payment_date for instance in instances}):
+        required_until_date = sum(
+            _remaining_after_current_allocation(instance, allocated_by_key)
+            for instance in instances
+            if instance.next_payment_date <= due_date
+        )
+        future_income_until_date = _expected_future_income_sum_until(future_incomes, current_income_date, due_date)
+        gap = max(0, required_until_date - future_income_until_date)
+        available_from_current_income = max(
+            0,
+            current_income_amount - sum(item.recommended_reserve for item in current_reserves),
+        )
+        logger.info(
+            "Cashflow gap check: income_id=%s due_date=%s required_until=%s future_income_until=%s gap=%s available_current=%s",
+            current_income_id,
+            due_date,
+            required_until_date,
+            future_income_until_date,
+            gap,
+            available_from_current_income,
+        )
+        if gap <= 0:
+            continue
+
+        target = next(
+            (
+                instance
+                for instance in instances
+                if instance.next_payment_date <= due_date
+                and _remaining_after_current_allocation(instance, allocated_by_key) > 0
+            ),
+            None,
+        )
+        if target is None:
+            continue
+        gaps.append(
+            CashflowGapDTO(
+                obligation_id=target.id,
+                title=target.title,
+                period_date=target.period_date or target.next_payment_date,
+                due_date=target.next_payment_date,
+                gap_amount=gap,
+                reason="Недостаточно будущих доходов до даты платежа",
+            )
+        )
+        break
+    return gaps
+
+
+def _apply_future_cashflow_gap_check(
+    current_income: IncomeCalculationDTO,
+    obligations: list[ObligationCalculationDTO],
+    items: list[AllocationItem],
+    future_incomes: list[IncomeCalculationDTO],
+    warnings: list[str],
+) -> list[AllocationItem]:
+    if not obligations:
+        return items
+
+    horizon_end = _cashflow_horizon_end(obligations)
+    adjusted_items = list(items)
+    item_indexes = {_item_key(item): index for index, item in enumerate(adjusted_items)}
+    allocated_before_gap = sum(item.recommended_reserve for item in adjusted_items)
+    logger.info(
+        "Cashflow check input: income_id=%s income_title=%s income_amount=%s allocated_before_gap=%s safe_before_gap=%s",
+        current_income.id,
+        current_income.title,
+        current_income.amount,
+        allocated_before_gap,
+        current_income.amount - allocated_before_gap,
+    )
+
+    while True:
+        allocated_by_key = _allocated_by_obligation_period(adjusted_items)
+        cashflow_instances = _expand_cashflow_payment_instances(obligations, allocated_by_key, horizon_end)
+        obligations_by_key = {_item_key(obligation): obligation for obligation in cashflow_instances}
+        logger.info(
+            "Cashflow future incomes: income_id=%s future=%s",
+            current_income.id,
+            [
+                (income.id, income.title, income.income_date, income.amount, income.status)
+                for income in future_incomes
+            ],
+        )
+        logger.info(
+            "Cashflow payment instances: income_id=%s payments=%s",
+            current_income.id,
+            [
+                (
+                    obligation.id,
+                    obligation.title,
+                    obligation.period_date or obligation.next_payment_date,
+                    _remaining_after_current_allocation(obligation, allocated_by_key),
+                )
+                for obligation in cashflow_instances
+            ],
+        )
+        gaps = calculate_future_cashflow_gaps(
+            current_income_id=current_income.id,
+            current_income_amount=current_income.amount,
+            current_income_date=current_income.income_date,
+            payment_instances=obligations,
+            future_incomes=future_incomes,
+            current_reserves=adjusted_items,
+            horizon_end=horizon_end,
+        )
+        logger.info(
+            "Cashflow gaps found: income_id=%s gaps=%s",
+            current_income.id,
+            [(gap.title, gap.period_date, gap.gap_amount) for gap in gaps],
+        )
+        if not gaps:
+            break
+
+        gap = gaps[0]
+        key = (gap.obligation_id, gap.period_date)
+        item_index = item_indexes.get(key)
+        if item_index is None:
+            obligation = obligations_by_key.get(key)
+            if obligation is None:
+                logger.warning(
+                    "Cashflow gap target missing: income_id=%s obligation_id=%s period_date=%s gap=%s",
+                    current_income.id,
+                    gap.obligation_id,
+                    gap.period_date,
+                    gap.gap_amount,
+                )
+                break
+            item_index = len(adjusted_items)
+            item_indexes[key] = item_index
+            adjusted_items.append(
+                AllocationItem(
+                    obligation_id=obligation.id,
+                    title=obligation.title,
+                    due_date=obligation.next_payment_date,
+                    period_date=obligation.period_date or obligation.next_payment_date,
+                    required_amount=obligation.monthly_payment_amount,
+                    remaining_amount=calculate_remaining_amount(obligation),
+                    recommended_reserve=0,
+                    risk="low",
+                )
+            )
+
+        item = adjusted_items[item_index]
+        available_from_current_income = max(
+            0,
+            current_income.amount - sum(existing.recommended_reserve for existing in adjusted_items),
+        )
+        current_remaining_for_payment = max(0, item.remaining_amount - item.recommended_reserve)
+        extra_reserve = min(gap.gap_amount, available_from_current_income, current_remaining_for_payment)
+        logger.info(
+            "Apply cashflow gap: income_id=%s obligation_id=%s period_date=%s gap=%s available_current=%s applied=%s",
+            current_income.id,
+            gap.obligation_id,
+            gap.period_date,
+            gap.gap_amount,
+            available_from_current_income,
+            extra_reserve,
+        )
+
+        if extra_reserve <= 0:
+            adjusted_items[item_index] = replace(item, risk="high")
+            warnings.append(
+                f"До платежа «{gap.title}» может не хватить {(extra_reserve or gap.gap_amount) // 100} ₽. "
+                f"До {gap.due_date.strftime('%d.%m.%Y')} ожидаемых доходов не хватает."
+            )
+            logger.warning(
+                "Cashflow gap not covered: income_id=%s obligation_id=%s period_date=%s gap=%s available_current=%s",
+                current_income.id,
+                gap.obligation_id,
+                gap.period_date,
+                gap.gap_amount,
+                available_from_current_income,
+            )
+            break
+
+        adjusted_items[item_index] = replace(
+            item,
+            recommended_reserve=item.recommended_reserve + extra_reserve,
+            risk="medium" if item.risk == "low" else item.risk,
+        )
+        warnings.append(
+            f"Я заранее отложил {extra_reserve // 100} ₽, потому что до платежа "
+            f"«{gap.title}» будущих доходов не хватило бы."
+        )
+        logger.info(
+            "Cashflow gap covered: income_id=%s obligation_id=%s period_date=%s amount=%s",
+            current_income.id,
+            gap.obligation_id,
+            gap.period_date,
+            extra_reserve,
+        )
+
+    allocated_after_gap = sum(item.recommended_reserve for item in adjusted_items)
+    logger.info(
+        "Cashflow check result: income_id=%s allocated_after_gap=%s safe_after_gap=%s items=%s",
+        current_income.id,
+        allocated_after_gap,
+        current_income.amount - allocated_after_gap,
+        [(item.title, item.period_date, item.recommended_reserve) for item in adjusted_items],
+    )
+    return adjusted_items
+
+
 def calculate_obligation_risk(
     obligation: ObligationCalculationDTO,
     remaining_amount: int,
@@ -306,6 +622,14 @@ def calculate_income_allocation(
             )
         )
         current_income_remaining -= recommended_reserve
+
+    items = _apply_future_cashflow_gap_check(
+        current_income=current_income,
+        obligations=obligations,
+        items=items,
+        future_incomes=future_incomes,
+        warnings=warnings,
+    )
 
     result = AllocationResult(
         income_id=current_income.id,

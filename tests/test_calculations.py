@@ -5,6 +5,7 @@ from app.calculations import (
     AllocationResult,
     IncomeCalculationDTO,
     ObligationCalculationDTO,
+    calculate_future_cashflow_gaps,
     calculate_income_allocation,
     calculate_purchase_impact,
     calculate_reserved_adjustment,
@@ -310,6 +311,179 @@ def test_future_income_after_due_date_is_not_used_for_payment():
     )
     assert result.total_to_reserve == 10000 * 100
     assert result.items[0].recommended_reserve == 10000 * 100
+
+
+def test_future_cashflow_gap_detects_advance_shortfall():
+    current_day = date(2026, 6, 25)
+    gaps = calculate_future_cashflow_gaps(
+        current_income_id=1,
+        current_income_amount=120000 * 100,
+        current_income_date=current_day,
+        payment_instances=[
+            obligation(1, "Credit Card", 641, date(2026, 7, 5)),
+            obligation(2, "Car Loan", 25000, date(2026, 7, 10)),
+        ],
+        future_incomes=[income(2, "Advance", 25000, date(2026, 7, 1), "expected")],
+        current_reserves=[],
+        horizon_end=date(2026, 7, 10),
+    )
+
+    assert len(gaps) == 1
+    assert gaps[0].gap_amount == 641 * 100
+    assert gaps[0].obligation_id == 1
+
+
+def test_future_cashflow_gap_extra_reserve_reduces_safe_to_spend():
+    current_day = date(2026, 6, 25)
+    result = calculate_income_allocation(
+        income(1, "Salary", 641, current_day),
+        [
+            obligation(1, "Credit Card", 641, date(2026, 7, 5)),
+            obligation(2, "Car Loan", 25000, date(2026, 7, 10)),
+        ],
+        [income(2, "Advance", 25000, date(2026, 7, 1), "expected")],
+        current_day,
+    )
+
+    assert result.total_to_reserve == 641 * 100
+    assert result.safe_to_spend == 0
+    assert any("заранее отложил" in warning for warning in result.warnings)
+    assert sum(item.recommended_reserve for item in result.items) + result.safe_to_spend == result.income_amount
+
+
+def test_future_cashflow_gap_does_not_add_extra_when_future_income_is_enough():
+    current_day = date(2026, 6, 25)
+    result = calculate_income_allocation(
+        income(1, "Salary", 641, current_day),
+        [
+            obligation(1, "Credit Card", 641, date(2026, 7, 5)),
+            obligation(2, "Car Loan", 25000, date(2026, 7, 10)),
+        ],
+        [income(2, "Advance", 30000, date(2026, 7, 1), "expected")],
+        current_day,
+    )
+
+    assert result.safe_to_spend > 0
+    assert not any("заранее отложил" in warning for warning in result.warnings)
+
+
+def test_future_cashflow_gap_high_risk_when_current_income_cannot_cover_gap():
+    current_day = date(2026, 6, 25)
+    result = calculate_income_allocation(
+        income(1, "Salary", 100, current_day),
+        [
+            obligation(1, "Credit Card", 641, date(2026, 7, 5)),
+            obligation(2, "Car Loan", 25000, date(2026, 7, 10)),
+        ],
+        [income(2, "Advance", 25000, date(2026, 7, 1), "expected")],
+        current_day,
+    )
+
+    assert result.total_to_reserve == 100 * 100
+    assert result.safe_to_spend == 0
+    assert result.overall_risk == "high"
+    assert any("может не хватить" in warning for warning in result.warnings)
+
+
+def test_future_cashflow_gap_ignores_income_after_payment_date():
+    current_day = date(2026, 6, 25)
+    gaps = calculate_future_cashflow_gaps(
+        current_income_id=1,
+        current_income_amount=120000 * 100,
+        current_income_date=current_day,
+        payment_instances=[obligation(1, "Car Loan", 25000, date(2026, 7, 10))],
+        future_incomes=[income(2, "Late Advance", 25000, date(2026, 7, 15), "expected")],
+        current_reserves=[],
+        horizon_end=date(2026, 7, 10),
+    )
+
+    assert gaps[0].gap_amount == 25000 * 100
+
+
+def test_future_cashflow_gap_ignores_cancelled_income():
+    current_day = date(2026, 6, 25)
+    gaps = calculate_future_cashflow_gaps(
+        current_income_id=1,
+        current_income_amount=120000 * 100,
+        current_income_date=current_day,
+        payment_instances=[obligation(1, "Car Loan", 25000, date(2026, 7, 10))],
+        future_incomes=[income(2, "Cancelled Advance", 25000, date(2026, 7, 1), "cancelled")],
+        current_reserves=[],
+        horizon_end=date(2026, 7, 10),
+    )
+
+    assert gaps[0].gap_amount == 25000 * 100
+
+
+def test_future_cashflow_gap_does_not_count_current_income_as_future_income():
+    current_day = date(2026, 6, 25)
+    gaps = calculate_future_cashflow_gaps(
+        current_income_id=1,
+        current_income_amount=120000 * 100,
+        current_income_date=current_day,
+        payment_instances=[obligation(1, "Car Loan", 25000, date(2026, 7, 10))],
+        future_incomes=[income(1, "Salary", 120000, current_day, "expected")],
+        current_reserves=[],
+        horizon_end=date(2026, 7, 10),
+    )
+
+    assert gaps[0].gap_amount == 25000 * 100
+
+
+def test_future_cashflow_gap_does_not_reserve_above_payment_remaining():
+    current_day = date(2026, 6, 25)
+    result = calculate_income_allocation(
+        income(1, "Salary", 300, current_day),
+        [
+            obligation(1, "Small Card", 300, date(2026, 7, 5)),
+            obligation(2, "Car Loan", 25000, date(2026, 7, 10)),
+        ],
+        [income(2, "Advance", 25000, date(2026, 7, 1), "expected")],
+        current_day,
+    )
+
+    assert all(item.recommended_reserve <= item.remaining_amount for item in result.items)
+    assert result.total_to_reserve <= 300 * 100
+
+
+def test_future_cashflow_gap_can_create_new_allocation_item():
+    current_day = date(2026, 6, 25)
+    result = calculate_income_allocation(
+        income(1, "Salary", 1000, current_day),
+        [obligation(1, "Credit Card", 641, date(2026, 7, 5))],
+        [income(2, "Advance", 25000, date(2026, 7, 10), "expected")],
+        current_day,
+    )
+
+    assert result.items[0].recommended_reserve == 641 * 100
+    assert result.safe_to_spend == 359 * 100
+
+
+def test_future_cashflow_gap_includes_next_recurring_instance_closed_by_current_income():
+    current_day = date(2026, 6, 20)
+    result = calculate_income_allocation(
+        income(41, "Salary", 175000, current_day),
+        [
+            obligation(1, "Car Loan", 25000, date(2026, 6, 10), reserved=22000),
+            obligation(2, "Mortgage", 50000, date(2026, 6, 15)),
+            obligation(3, "Repair Loan", 30000, date(2026, 6, 25)),
+            obligation(4, "Credit Card", 3000, date(2026, 7, 5)),
+        ],
+        [
+            income(42, "Advance", 25000, date(2026, 7, 5), "expected"),
+            income(43, "Next Salary", 175000, date(2026, 7, 15), "expected"),
+        ],
+        current_day,
+    )
+
+    credit_card = next(
+        item for item in result.items if item.obligation_id == 4 and item.period_date == date(2026, 7, 5)
+    )
+
+    assert credit_card.recommended_reserve == 3000 * 100
+    assert result.total_to_reserve == 86000 * 100
+    assert result.safe_to_spend == 89000 * 100
+    assert sum(item.recommended_reserve for item in result.items) + result.safe_to_spend == result.income_amount
 
 
 def test_last_income_before_due_reserves_all_current_income_when_not_enough():

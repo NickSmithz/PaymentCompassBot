@@ -187,7 +187,20 @@ async def create_reserves_safely(
         has_existing_reserves,
     )
     if has_existing_reserves:
-        return await _result_from_existing_reserves(session, user_id, income_id, allocation_result)
+        logger.info(
+            "EXISTING_AUTO_RESERVES_FOUND user_id=%s income_id=%s action=%s",
+            user_id,
+            income_id,
+            "top_up_missing_recommendations",
+        )
+
+    existing_by_obligation_period: dict[tuple[int, date], int] = {}
+    if has_existing_reserves:
+        existing_by_obligation_period = await reserves_repo.auto_reserved_by_obligation_period_for_income(
+            session,
+            user_id,
+            income_id,
+        )
 
     created_items = []
     created_transactions = []
@@ -217,6 +230,20 @@ async def create_reserves_safely(
                 "earlier instance is not covered",
             )
             continue
+        existing_amount = existing_by_obligation_period.get((obligation.id, period_date), 0)
+        missing_recommendation = max(0, item.recommended_reserve - existing_amount)
+        if missing_recommendation <= 0:
+            logger.info(
+                "Skip reserve: income_id=%s obligation_id=%s title=%s period_date=%s reason=%s existing=%s recommended=%s",
+                income_id,
+                obligation.id,
+                obligation.title,
+                period_date,
+                "existing reserve already covers recommendation",
+                existing_amount,
+                item.recommended_reserve,
+            )
+            continue
         current_reserved = await reserves_repo.sum_reserved_for_obligation_period(
             session,
             user_id,
@@ -243,14 +270,16 @@ async def create_reserves_safely(
                 period_date=period_date,
             )
         )
-        amount_to_create = normalize_money_for_display(calculate_reserve_to_create(item.recommended_reserve, current_remaining))
+        amount_to_create = normalize_money_for_display(calculate_reserve_to_create(missing_recommendation, current_remaining))
         logger.info(
-            "RESERVE_ATTEMPT user_id=%s income_id=%s obligation_id=%s title=%s recommended=%s current_reserved=%s paid=%s current_remaining=%s amount_to_create=%s",
+            "RESERVE_ATTEMPT user_id=%s income_id=%s obligation_id=%s title=%s recommended=%s existing_for_income=%s missing_recommendation=%s current_reserved=%s paid=%s current_remaining=%s amount_to_create=%s",
             user_id,
             income_id,
             obligation.id,
             obligation.title,
             item.recommended_reserve,
+            existing_amount,
+            missing_recommendation,
             current_reserved,
             paid_amount,
             current_remaining,
@@ -321,8 +350,10 @@ async def create_reserves_safely(
             check_reserved,
         )
 
-    if allocation_result.total_to_reserve > 0 and not created_items:
+    if allocation_result.total_to_reserve > 0 and not created_items and not has_existing_reserves:
         allocation_result.warnings.append("Не удалось сохранить резервы. Попробуй ещё раз или проверь логи.")
+    if has_existing_reserves:
+        return await _result_from_existing_reserves(session, user_id, income_id, allocation_result)
     return _rebuild_result_with_items(allocation_result, created_items)
 
 

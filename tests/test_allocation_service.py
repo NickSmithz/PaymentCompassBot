@@ -1,5 +1,6 @@
 import asyncio
 from datetime import date, timedelta
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -49,6 +50,13 @@ async def create_obligation(session, user_id: int, amount: int, due: date, title
 
 async def create_income(session, user_id: int, amount: int, day: date, title: str = "Доход") -> Income:
     income = Income(user_id=user_id, title=title, amount=amount, income_date=day, status="received")
+    session.add(income)
+    await session.flush()
+    return income
+
+
+async def create_expected_income(session, user_id: int, amount: int, day: date, title: str = "Income") -> Income:
+    income = Income(user_id=user_id, title=title, amount=amount, income_date=day, status="expected")
     session.add(income)
     await session.flush()
     return income
@@ -681,6 +689,149 @@ def test_create_reserves_safely_skips_future_period_when_earlier_instance_is_ope
 
                 assert after == before
                 assert result.items == []
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_process_received_income_tops_up_existing_reserve_after_cashflow_gap():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 6, 25)
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(
+                    session,
+                    user.id,
+                    641 * 100,
+                    date(2026, 7, 5),
+                    "Credit Card",
+                )
+                obligation.is_recurring = False
+                income = await create_income(session, user.id, 120000 * 100, today, "Salary")
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=obligation.id,
+                    income_id=income.id,
+                    amount=25 * 100,
+                    transaction_type="reserve",
+                    source="auto_plan",
+                    period_date=obligation.next_payment_date,
+                )
+                await session.commit()
+
+                allocation_result = AllocationResult(
+                    income_id=income.id,
+                    income_title=income.title,
+                    income_amount=income.amount,
+                    total_to_reserve=641 * 100,
+                    safe_to_spend=119359 * 100,
+                    overall_risk="medium",
+                    items=[
+                        AllocationItem(
+                            obligation_id=obligation.id,
+                            title=obligation.title,
+                            due_date=obligation.next_payment_date,
+                            period_date=obligation.next_payment_date,
+                            required_amount=obligation.monthly_payment_amount,
+                            remaining_amount=641 * 100,
+                            recommended_reserve=641 * 100,
+                            risk="medium",
+                        )
+                    ],
+                )
+
+                with patch(
+                    "app.services.allocation._calculate_received_income",
+                    new=AsyncMock(return_value=allocation_result),
+                ):
+                    result = await allocation_service.process_received_income(session, user.id, income.id, today)
+
+                reserved = await reserves_repo.sum_reserved_for_obligation_period(
+                    session,
+                    user.id,
+                    obligation.id,
+                    obligation.next_payment_date,
+                )
+                assert reserved == 641 * 100
+                assert result.total_to_reserve == 641 * 100
+                assert result.safe_to_spend == 119359 * 100
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_process_received_income_applies_cashflow_gap_for_next_recurring_period():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 6, 25)
+            async with Session() as session:
+                user = await create_user(session)
+                credit_card = await create_obligation(
+                    session,
+                    user.id,
+                    3000 * 100,
+                    date(2026, 6, 5),
+                    "Credit Card",
+                )
+                car_loan = await create_obligation(
+                    session,
+                    user.id,
+                    25000 * 100,
+                    date(2026, 6, 10),
+                    "Car Loan",
+                )
+                await create_obligation(session, user.id, 50000 * 100, date(2026, 6, 15), "Mortgage")
+                await create_obligation(session, user.id, 30000 * 100, date(2026, 6, 25), "Repair Loan")
+                salary = await create_income(session, user.id, 175000 * 100, today, "Salary")
+                await create_expected_income(session, user.id, 25000 * 100, date(2026, 7, 5), "Advance")
+                await create_expected_income(session, user.id, 175000 * 100, date(2026, 7, 15), "Next Salary")
+
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=credit_card.id,
+                    income_id=None,
+                    amount=3000 * 100,
+                    transaction_type="reserve",
+                    source="auto_plan",
+                    period_date=date(2026, 6, 5),
+                )
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=car_loan.id,
+                    income_id=None,
+                    amount=22000 * 100,
+                    transaction_type="reserve",
+                    source="auto_plan",
+                    period_date=date(2026, 6, 10),
+                )
+                await session.commit()
+
+                result = await allocation_service.process_received_income(session, user.id, salary.id, today)
+
+                credit_card_july_reserved = await reserves_repo.sum_reserved_for_obligation_period(
+                    session,
+                    user.id,
+                    credit_card.id,
+                    date(2026, 7, 5),
+                )
+                salary_reserved = await reserves_repo.auto_reserved_by_obligation_period_for_income(
+                    session,
+                    user.id,
+                    salary.id,
+                )
+
+                assert credit_card_july_reserved == 3000 * 100
+                assert sum(salary_reserved.values()) == 86000 * 100
+                assert result.total_to_reserve == 86000 * 100
+                assert result.safe_to_spend == 89000 * 100
         finally:
             await engine.dispose()
 

@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from datetime import date
-from math import ceil
 
 
 @dataclass(frozen=True)
@@ -100,6 +99,34 @@ def normalize_money_for_display(amount: int) -> int:
     return (max(0, amount) // 100) * 100
 
 
+def distribute_amount_without_rounding_loss(total_amount: int, weights: list[int]) -> list[int]:
+    if total_amount <= 0:
+        return [0 for _ in weights]
+
+    safe_weights = [max(0, int(weight)) for weight in weights]
+    total_weight = sum(safe_weights)
+    if total_weight <= 0:
+        return [0 for _ in weights]
+
+    rows = []
+    for index, weight in enumerate(safe_weights):
+        numerator = total_amount * weight
+        rows.append(
+            {
+                "index": index,
+                "base": numerator // total_weight,
+                "remainder": numerator % total_weight,
+            }
+        )
+
+    parts = [row["base"] for row in rows]
+    leftover = total_amount - sum(parts)
+    rows_sorted = sorted(rows, key=lambda row: (-row["remainder"], row["index"]))
+    for row in rows_sorted[:leftover]:
+        parts[row["index"]] += 1
+    return parts
+
+
 def normalize_allocation_totals(result: AllocationResult) -> AllocationResult:
     income_remaining = max(0, result.income_amount)
     normalized_items: list[AllocationItem] = []
@@ -164,16 +191,29 @@ def sort_obligations_by_priority(
     )
 
 
-def _future_income_sum(
+def _future_incomes_before_due(
     future_incomes: list[IncomeCalculationDTO], current_income: IncomeCalculationDTO, due_date: date
-) -> int:
-    return sum(
-        income.amount
+) -> list[IncomeCalculationDTO]:
+    return [
+        income
         for income in future_incomes
         if income.income_date > current_income.income_date
         and income.income_date <= due_date
         and income.status in {"expected", "received"}
-    )
+    ]
+
+
+def _current_income_share_for_obligation(
+    remaining_amount: int,
+    current_income_remaining: int,
+    future_incomes_until_due: list[IncomeCalculationDTO],
+) -> int:
+    current_weight = normalize_money_for_display(current_income_remaining) // 100
+    future_weights = [normalize_money_for_display(income.amount) // 100 for income in future_incomes_until_due]
+    weights = [current_weight, *future_weights]
+    total_available = sum(weights)
+    total_to_distribute = min(normalize_money_for_display(remaining_amount) // 100, total_available)
+    return distribute_amount_without_rounding_loss(total_to_distribute, weights)[0] * 100
 
 
 def calculate_obligation_risk(
@@ -218,7 +258,8 @@ def calculate_income_allocation(
         remaining_amount = calculate_remaining_amount(obligation)
         if remaining_amount <= 0:
             continue
-        future_sum = _future_income_sum(future_incomes, current_income, obligation.next_payment_date)
+        future_incomes_until_due = _future_incomes_before_due(future_incomes, current_income, obligation.next_payment_date)
+        future_sum = sum(income.amount for income in future_incomes_until_due)
         total_available_until_due = current_income_remaining + future_sum
         recommended_reserve = 0
 
@@ -227,8 +268,12 @@ def calculate_income_allocation(
             if last_income_before_due:
                 recommended_reserve = min(remaining_amount, current_income_remaining)
             elif total_available_until_due > 0:
-                current_share = current_income_remaining / total_available_until_due
-                recommended_reserve = min(remaining_amount, current_income_remaining, ceil(remaining_amount * current_share))
+                recommended_reserve = _current_income_share_for_obligation(
+                    remaining_amount,
+                    current_income_remaining,
+                    future_incomes_until_due,
+                )
+                recommended_reserve = min(remaining_amount, current_income_remaining, recommended_reserve)
             recommended_reserve = normalize_money_for_display(recommended_reserve)
 
         remaining_after_recommendation = max(0, remaining_amount - recommended_reserve)

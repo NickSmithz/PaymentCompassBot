@@ -10,6 +10,7 @@ from app.calculations import (
     calculate_reserved_adjustment,
     calculate_reserved_balance,
     calculate_reserve_to_create,
+    distribute_amount_without_rounding_loss,
     normalize_allocation_totals,
 )
 from app.formatters import format_allocation_result
@@ -391,12 +392,150 @@ def test_warning_when_no_future_income_before_due_and_money_still_missing():
         [],
         today,
     )
+
     assert result.items[0].recommended_reserve == 20000 * 100
     assert any(
         "До платежа «Аренда Кв» может не хватить денег: до 05.06.2026 больше нет ожидаемых доходов."
         in warning
         for warning in result.warnings
     )
+
+
+def test_distribute_amount_without_rounding_loss_equal_weights_40000():
+    parts = distribute_amount_without_rounding_loss(40000, [1, 1, 1])
+
+    assert parts == [13334, 13333, 13333]
+    assert sum(parts) == 40000
+
+
+def test_distribute_amount_without_rounding_loss_equal_weights_2200():
+    parts = distribute_amount_without_rounding_loss(2200, [1, 1, 1])
+
+    assert parts == [734, 733, 733]
+    assert sum(parts) == 2200
+
+
+def test_distribute_amount_without_rounding_loss_weighted_case():
+    parts = distribute_amount_without_rounding_loss(7171, [40000, 30000, 25000])
+
+    assert sum(parts) == 7171
+
+
+def test_distribute_amount_without_rounding_loss_zero_weights():
+    assert distribute_amount_without_rounding_loss(1000, [0, 0]) == [0, 0]
+
+
+def test_distribute_amount_without_rounding_loss_single_weight():
+    assert distribute_amount_without_rounding_loss(1000, [50000]) == [1000]
+
+
+def test_distribute_amount_without_rounding_loss_negative_weights():
+    parts = distribute_amount_without_rounding_loss(1000, [100, -50, 100])
+
+    assert sum(parts) == 1000
+    assert parts[1] == 0
+
+
+def test_payment_allocation_does_not_lose_one_ruble_across_three_incomes():
+    today = date(2026, 5, 8)
+    due = today + timedelta(days=20)
+    first = calculate_income_allocation(
+        income(1, "Income 1", 40000, today),
+        [obligation(1, "Credit Alpha", 40000, due)],
+        [
+            income(2, "Income 2", 40000, today + timedelta(days=1), "expected"),
+            income(3, "Income 3", 40000, today + timedelta(days=2), "expected"),
+        ],
+        today,
+    )
+    first_reserved = first.items[0].recommended_reserve
+    second = calculate_income_allocation(
+        income(2, "Income 2", 40000, today + timedelta(days=1)),
+        [obligation(1, "Credit Alpha", 40000, due, reserved=first_reserved // 100)],
+        [income(3, "Income 3", 40000, today + timedelta(days=2), "expected")],
+        today,
+    )
+    second_reserved = second.items[0].recommended_reserve
+    third = calculate_income_allocation(
+        income(3, "Income 3", 40000, today + timedelta(days=2)),
+        [obligation(1, "Credit Alpha", 40000, due, reserved=(first_reserved + second_reserved) // 100)],
+        [],
+        today,
+    )
+
+    total_reserved = first_reserved + second_reserved + third.items[0].recommended_reserve
+
+    assert [first_reserved, second_reserved, third.items[0].recommended_reserve] == [
+        13334 * 100,
+        13333 * 100,
+        13333 * 100,
+    ]
+    assert total_reserved == 40000 * 100
+
+
+def test_payment_allocation_does_not_lose_one_ruble_for_small_payment():
+    today = date(2026, 5, 8)
+    due = today + timedelta(days=20)
+    first = calculate_income_allocation(
+        income(1, "Income 1", 40000, today),
+        [obligation(1, "Credit Card", 2200, due)],
+        [
+            income(2, "Income 2", 40000, today + timedelta(days=1), "expected"),
+            income(3, "Income 3", 40000, today + timedelta(days=2), "expected"),
+        ],
+        today,
+    )
+    first_reserved = first.items[0].recommended_reserve
+    second = calculate_income_allocation(
+        income(2, "Income 2", 40000, today + timedelta(days=1)),
+        [obligation(1, "Credit Card", 2200, due, reserved=first_reserved // 100)],
+        [income(3, "Income 3", 40000, today + timedelta(days=2), "expected")],
+        today,
+    )
+    second_reserved = second.items[0].recommended_reserve
+    third = calculate_income_allocation(
+        income(3, "Income 3", 40000, today + timedelta(days=2)),
+        [obligation(1, "Credit Card", 2200, due, reserved=(first_reserved + second_reserved) // 100)],
+        [],
+        today,
+    )
+
+    total_reserved = first_reserved + second_reserved + third.items[0].recommended_reserve
+
+    assert [first_reserved, second_reserved, third.items[0].recommended_reserve] == [
+        734 * 100,
+        733 * 100,
+        733 * 100,
+    ]
+    assert total_reserved == 2200 * 100
+
+
+def test_payment_allocation_keeps_real_one_ruble_gap_when_income_is_missing():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Income", 39999, today),
+        [obligation(1, "Credit Alpha", 40000, today + timedelta(days=20))],
+        [],
+        today,
+    )
+
+    assert result.items[0].recommended_reserve == 39999 * 100
+    assert result.items[0].remaining_amount - result.items[0].recommended_reserve == 1 * 100
+
+
+def test_allocation_result_totals_are_consistent_for_processed_income():
+    today = date(2026, 5, 8)
+    result = calculate_income_allocation(
+        income(1, "Income", 30000, today),
+        [
+            obligation(1, "Alpha", 40000, today + timedelta(days=20)),
+            obligation(2, "Card", 2200, today + timedelta(days=21)),
+        ],
+        [income(2, "Future", 30000, today + timedelta(days=10), "expected")],
+        today,
+    )
+
+    assert sum(item.recommended_reserve for item in result.items) + result.safe_to_spend == result.income_amount
 
 
 def _allocation_item(amount_rub: int, obligation_id: int = 1) -> AllocationItem:

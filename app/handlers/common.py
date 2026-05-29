@@ -40,6 +40,7 @@ from app.services import incomes as income_service
 from app.services import obligations as obligation_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import EditIncomeStates, EditObligationStates
+from app.telegram_messages import send_long_message
 from app.utils import format_money, parse_date, parse_money
 
 router = Router()
@@ -493,7 +494,7 @@ async def debug_reserves(message: Message) -> None:
                 ]
             )
 
-    await message.answer("\n".join(lines).strip(), reply_markup=main_menu_keyboard())
+    await send_long_message(message, "\n".join(lines).strip(), reply_markup=main_menu_keyboard())
 
 
 @router.message(Command("debug_obligations"))
@@ -556,7 +557,7 @@ async def debug_obligations(message: Message) -> None:
             )
         )
 
-    await message.answer("\n".join(lines).strip(), reply_markup=main_menu_keyboard())
+    await send_long_message(message, "\n".join(lines).strip(), reply_markup=main_menu_keyboard())
 
 
 @router.message(Command("debug_incomes"))
@@ -580,21 +581,23 @@ async def debug_incomes(message: Message) -> None:
         lines.append("Доходов нет.")
     for income in incomes:
         received_at = income.received_at.strftime("%Y-%m-%d %H:%M") if income.received_at else "NULL"
-        updated_at = income.updated_at.strftime("%Y-%m-%d %H:%M") if income.updated_at else "NULL"
-        created_at = income.created_at.strftime("%Y-%m-%d %H:%M") if income.created_at else "NULL"
-        lines.extend(
-            [
-                f"id={income.id} title={income.title} amount={format_money(income.amount)}",
-                f"income_date={income.income_date} period_date={income.period_date} status={income.status}",
-                f"is_recurring={income.is_recurring} parent_income_id={income.parent_income_id} recurrence_type={income.recurrence_type}",
-                f"received_at={received_at}",
-                f"updated_at={updated_at}",
-                f"created_at={created_at}",
-                "",
-            ]
+        lines.append(
+            " | ".join(
+                [
+                    f"id={income.id}",
+                    income.title,
+                    format_money(income.amount),
+                    f"date={income.income_date}",
+                    f"period={income.period_date}",
+                    income.status,
+                    f"recurring={income.is_recurring}",
+                    f"parent={income.parent_income_id}",
+                    f"received_at={received_at}",
+                ]
+            )
         )
 
-    await message.answer("\n".join(lines).strip(), reply_markup=main_menu_keyboard())
+    await send_long_message(message, "\n".join(lines).strip(), reply_markup=main_menu_keyboard())
 
 
 @router.message()

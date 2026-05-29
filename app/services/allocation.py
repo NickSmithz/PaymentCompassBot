@@ -76,15 +76,14 @@ async def _calculate_received_income(
     *,
     exclude_income_reserves: bool,
 ) -> AllocationResult:
-    obligations = await obligations_repo.list_active_by_user(session, user_id)
     settings = get_settings()
     horizon_end = max(today, income.income_date) + timedelta(days=settings.planning_horizon_days)
-    obligation_instances = await obligation_service.generate_relevant_obligation_instances(
+    obligation_instances = await obligation_service.get_relevant_obligation_instances_for_user(
         session,
         user_id,
-        obligations,
         today,
-        horizon_end,
+        horizon_days=settings.planning_horizon_days,
+        horizon_end=horizon_end,
     )
     future_incomes = await incomes_repo.list_future_by_user(session, user_id, income.income_date)
     existing_by_obligation_period: dict[tuple[int, date], int] = {}

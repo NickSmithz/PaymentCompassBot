@@ -114,6 +114,16 @@ def format_spending_summary(summary) -> str:
 def format_obligations_list(summary) -> str:
     items = summary["items"] if isinstance(summary, dict) else summary
     if not items:
+        if isinstance(summary, dict) and summary.get("obligations_count", 0) > 0:
+            if summary.get("active_obligations_count", 0) == 0:
+                return f"{BTN_UPCOMING_PAYMENTS}\n\nПлатежи есть, но сейчас все они отключены."
+            horizon_end = summary.get("horizon_end")
+            horizon_text = f" до {format_date(horizon_end)}" if horizon_end else ""
+            return (
+                f"{BTN_UPCOMING_PAYMENTS}\n\n"
+                f"Платежи есть, но сейчас нет незакрытых платежей в горизонте планирования{horizon_text}.\n\n"
+                "Если это неожиданно, проверь даты платежей или увеличь горизонт планирования."
+            )
         return f"{BTN_UPCOMING_PAYMENTS}\n\nПока нет добавленных платежей.\n\nДобавь первый платёж через кнопку «{BTN_ADD_OBLIGATION}»."
 
     lines = [BTN_UPCOMING_PAYMENTS, ""]

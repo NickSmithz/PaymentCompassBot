@@ -496,6 +496,69 @@ async def debug_reserves(message: Message) -> None:
     await message.answer("\n".join(lines).strip(), reply_markup=main_menu_keyboard())
 
 
+@router.message(Command("debug_obligations"))
+async def debug_obligations(message: Message) -> None:
+    if not get_settings().dev_mode:
+        await message.answer("Команда доступна только в режиме разработки.", reply_markup=main_menu_keyboard())
+        return
+
+    async with SessionLocal() as session:
+        user = await get_or_create_user_from_telegram(
+            session,
+            message.from_user.id,
+            message.from_user.username,
+            message.from_user.first_name,
+        )
+        today = _today(user.timezone)
+        obligations = await obligation_service.list_obligations(session, user.id)
+        instances = await obligation_service.get_relevant_obligation_instances_for_user(
+            session,
+            user.id,
+            today,
+            horizon_days=get_settings().planning_horizon_days,
+        )
+
+    lines = ["🧪 Debug obligations", "", "Obligations:"]
+    if not obligations:
+        lines.append("Платежей нет.")
+    for obligation in obligations:
+        lines.append(
+            " ".join(
+                [
+                    f"id={obligation.id}",
+                    f"title={obligation.title}",
+                    f"amount={format_money(obligation.monthly_payment_amount)}",
+                    f"next_payment_date={obligation.next_payment_date}",
+                    f"is_active={obligation.is_active}",
+                    f"is_recurring={obligation.is_recurring}",
+                ]
+            )
+        )
+
+    lines.extend(["", "Relevant instances:"])
+    if not instances:
+        lines.append("Relevant instances не найдены.")
+    for instance in instances:
+        period_date = instance.period_date or instance.next_payment_date
+        remaining = max(0, instance.monthly_payment_amount - instance.reserved_amount - instance.paid_amount)
+        lines.append(
+            " ".join(
+                [
+                    f"obligation_id={instance.id}",
+                    f"title={instance.title}",
+                    f"period_date={period_date}",
+                    f"amount={format_money(instance.monthly_payment_amount)}",
+                    f"reserved={format_money(instance.reserved_amount)}",
+                    f"paid={format_money(instance.paid_amount)}",
+                    f"remaining={format_money(remaining)}",
+                    "selected=True",
+                ]
+            )
+        )
+
+    await message.answer("\n".join(lines).strip(), reply_markup=main_menu_keyboard())
+
+
 @router.message(Command("debug_incomes"))
 async def debug_incomes(message: Message) -> None:
     if not get_settings().dev_mode:

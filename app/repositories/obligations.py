@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from sqlalchemy import delete as sa_delete, select, update as sa_update
+from sqlalchemy import delete as sa_delete, func, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Obligation, User
@@ -30,6 +30,22 @@ async def list_by_user(session: AsyncSession, user_id: int) -> list[Obligation]:
         select(Obligation).where(Obligation.user_id == user_id).order_by(Obligation.next_payment_date)
     )
     return list(result)
+
+
+async def count_by_user(session: AsyncSession, user_id: int) -> int:
+    return await session.scalar(select(func.count(Obligation.id)).where(Obligation.user_id == user_id)) or 0
+
+
+async def count_active_by_user(session: AsyncSession, user_id: int) -> int:
+    return (
+        await session.scalar(
+            select(func.count(Obligation.id)).where(
+                Obligation.user_id == user_id,
+                Obligation.is_active.is_(True),
+            )
+        )
+        or 0
+    )
 
 
 async def update(session: AsyncSession, obligation: Obligation, data: dict) -> Obligation:

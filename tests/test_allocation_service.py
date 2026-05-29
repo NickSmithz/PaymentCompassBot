@@ -9,6 +9,7 @@ from app.models import Base, Income, Obligation, PaymentRecord, ReserveTransacti
 from app.repositories import reserves as reserves_repo
 from app.services import allocation as allocation_service
 from app.services import obligations as obligation_service
+from app.services import payments as payment_service
 
 
 def run(coro):
@@ -390,6 +391,108 @@ def test_upcoming_obligations_shows_next_open_recurring_instance_when_current_is
                 assert summary["items"][0]["id"] == obligation.id
                 assert summary["items"][0]["date"] == date(2026, 6, 30)
                 assert summary["items"][0]["remaining_amount"] == 40000 * 100
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_allocation_and_upcoming_use_same_future_recurring_instance_source():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 29)
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(
+                    session,
+                    user.id,
+                    16000 * 100,
+                    date(2026, 6, 15),
+                    "Credit Sber",
+                )
+                income = await create_income(session, user.id, 1000 * 100, date(2026, 7, 1), "Noshchenko")
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=obligation.id,
+                    income_id=None,
+                    amount=16000 * 100,
+                    transaction_type="manual_adjustment",
+                    source="manual",
+                    period_date=date(2026, 6, 15),
+                )
+                await session.commit()
+
+                allocation = await allocation_service.process_received_income(session, user.id, income.id, today)
+                upcoming = await obligation_service.get_upcoming_obligations_summary(session, user.id, today)
+
+                assert [item.due_date for item in allocation.items] == [date(2026, 7, 15)]
+                assert [item["date"] for item in upcoming["items"]] == [date(2026, 7, 15)]
+                assert upcoming["items"][0]["reserved_amount"] == 1000 * 100
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_upcoming_summary_reports_existing_obligations_when_horizon_has_no_instances():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 29)
+            async with Session() as session:
+                user = await create_user(session)
+                await create_obligation(session, user.id, 16000 * 100, date(2026, 12, 15), "Future Credit")
+                await session.commit()
+
+                summary = await obligation_service.get_upcoming_obligations_summary(session, user.id, today)
+
+                assert summary["items"] == []
+                assert summary["obligations_count"] == 1
+                assert summary["active_obligations_count"] == 1
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_recurring_obligation_stays_active_after_full_payment():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(session, user.id, 16000 * 100, date(2026, 6, 15), "Credit Sber")
+                await session.commit()
+
+                await payment_service.process_obligation_payment(session, user.id, obligation.id, 16000 * 100, date(2026, 6, 15))
+                await session.refresh(obligation)
+
+                assert obligation.is_active is True
+                assert obligation.next_payment_date == date(2026, 7, 15)
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_non_recurring_obligation_deactivates_after_full_payment():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(session, user.id, 16000 * 100, date(2026, 6, 15), "One Time")
+                obligation.is_recurring = False
+                obligation.payment_day = None
+                await session.commit()
+
+                await payment_service.process_obligation_payment(session, user.id, obligation.id, 16000 * 100, date(2026, 6, 15))
+                await session.refresh(obligation)
+
+                assert obligation.is_active is False
+                assert obligation.next_payment_date == date(2026, 6, 15)
         finally:
             await engine.dispose()
 

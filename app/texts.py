@@ -36,7 +36,6 @@ ACTIVE_MAIN_MENU_BUTTONS = {
     BTN_MY_INCOMES,
     BTN_ADD_OBLIGATION,
     BTN_UPCOMING_PAYMENTS,
-    BTN_MARK_PAYMENT,
     BTN_PROGRESS,
     BTN_EDIT,
     BTN_SETTINGS,
@@ -48,6 +47,7 @@ FROZEN_FEATURE_BUTTONS = {
     BTN_SALARY_PLAN,
     BTN_LIVING_MINIMUM,
     BTN_SAVINGS,
+    BTN_MARK_PAYMENT,
 }
 
 MAIN_MENU_BUTTONS = ACTIVE_MAIN_MENU_BUTTONS
@@ -82,6 +82,9 @@ FROZEN_COMMANDS = {
     "/salary_plan",
     "/living_minimum",
     "/savings",
+    "/mark_payment",
+    "/pay",
+    "/payment",
 }
 
 MAIN_COMMANDS = ACTIVE_COMMANDS
@@ -95,6 +98,12 @@ FROZEN_FEATURE_MESSAGE = (
     "— ближайшие платежи;\n"
     "— сколько можно тратить.\n\n"
     "Она вернётся позже, когда ядро будет работать стабильно."
+)
+
+FROZEN_PAYMENT_MESSAGE = (
+    "Функция «Отметить оплату» временно отключена.\n\n"
+    "В текущей версии бот считает платёж закрытым для планирования, когда нужная сумма полностью "
+    "зарезервирована. Если сумма собрана, отдельное подтверждение оплаты не требуется."
 )
 
 

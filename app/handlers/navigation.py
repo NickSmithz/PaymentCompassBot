@@ -8,7 +8,6 @@ from app.handlers import (
     common as common_handlers,
     incomes as incomes_handlers,
     obligations as obligations_handlers,
-    payments as payments_handlers,
     progress as progress_handlers,
     settings as settings_handlers,
 )
@@ -18,7 +17,6 @@ from app.texts import (
     BTN_ADD_OBLIGATION,
     BTN_CANCEL_ACTION,
     BTN_EDIT,
-    BTN_MARK_PAYMENT,
     BTN_MENU,
     BTN_MY_INCOMES,
     BTN_PROGRESS,
@@ -81,12 +79,6 @@ async def open_add_obligation(message: Message, state: FSMContext) -> None:
 async def open_upcoming_payments(message: Message, state: FSMContext) -> None:
     await _clear_state(state)
     await obligations_handlers.upcoming_payments(message)
-
-
-@router.message(StateFilter("*"), F.text == BTN_MARK_PAYMENT)
-async def open_mark_payment(message: Message, state: FSMContext) -> None:
-    await _clear_state(state)
-    await payments_handlers.payment_start(message, state)
 
 
 @router.message(StateFilter("*"), F.text == BTN_PROGRESS)

@@ -2,7 +2,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.config import get_settings
-from app.handlers import common, calculations, dev_tools, frozen_features, incomes, navigation, obligations, payments, progress, return_flow, settings, start
+from app.handlers import common, calculations, dev_tools, frozen_features, incomes, navigation, obligations, progress, return_flow, settings, start
 from app.middlewares.navigation_reset import NavigationResetMiddleware
 
 
@@ -30,7 +30,8 @@ def create_dispatcher() -> Dispatcher:
         # what_if.router,
         incomes.router,
         obligations.router,
-        payments.router,
+        # Временно отключено для упрощения MVP: пользовательский сценарий отметки оплаты скрыт.
+        # payments.router,
         calculations.router,
         progress.router,
         settings.router,

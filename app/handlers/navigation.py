@@ -8,7 +8,6 @@ from app.handlers import (
     common as common_handlers,
     incomes as incomes_handlers,
     obligations as obligations_handlers,
-    progress as progress_handlers,
     settings as settings_handlers,
 )
 from app.keyboards import main_menu_keyboard
@@ -19,7 +18,6 @@ from app.texts import (
     BTN_EDIT,
     BTN_MENU,
     BTN_MY_INCOMES,
-    BTN_PROGRESS,
     BTN_SAFE_TO_SPEND,
     BTN_SETTINGS,
     BTN_UPCOMING_PAYMENTS,
@@ -79,12 +77,6 @@ async def open_add_obligation(message: Message, state: FSMContext) -> None:
 async def open_upcoming_payments(message: Message, state: FSMContext) -> None:
     await _clear_state(state)
     await obligations_handlers.upcoming_payments(message)
-
-
-@router.message(StateFilter("*"), F.text == BTN_PROGRESS)
-async def open_progress(message: Message, state: FSMContext) -> None:
-    await _clear_state(state)
-    await progress_handlers.progress_handler(message)
 
 
 @router.message(StateFilter("*"), F.text == BTN_EDIT)

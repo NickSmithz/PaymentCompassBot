@@ -36,7 +36,6 @@ ACTIVE_MAIN_MENU_BUTTONS = {
     BTN_MY_INCOMES,
     BTN_ADD_OBLIGATION,
     BTN_UPCOMING_PAYMENTS,
-    BTN_PROGRESS,
     BTN_EDIT,
     BTN_SETTINGS,
 }
@@ -48,6 +47,7 @@ FROZEN_FEATURE_BUTTONS = {
     BTN_LIVING_MINIMUM,
     BTN_SAVINGS,
     BTN_MARK_PAYMENT,
+    BTN_PROGRESS,
 }
 
 MAIN_MENU_BUTTONS = ACTIVE_MAIN_MENU_BUTTONS
@@ -71,7 +71,6 @@ ACTIVE_COMMANDS = {
     "/add_obligation",
     "/payments",
     "/spend",
-    "/progress",
     CMD_IM_BACK,
     "/cancel",
 }
@@ -85,6 +84,7 @@ FROZEN_COMMANDS = {
     "/mark_payment",
     "/pay",
     "/payment",
+    "/progress",
 }
 
 MAIN_COMMANDS = ACTIVE_COMMANDS
@@ -104,6 +104,17 @@ FROZEN_PAYMENT_MESSAGE = (
     "Функция «Отметить оплату» временно отключена.\n\n"
     "В текущей версии бот считает платёж закрытым для планирования, когда нужная сумма полностью "
     "зарезервирована. Если сумма собрана, отдельное подтверждение оплаты не требуется."
+)
+
+FROZEN_PROGRESS_MESSAGE = (
+    "Функция «Прогресс долгов» временно отключена.\n\n"
+    "Сейчас мы стабилизируем основной расчёт:\n"
+    "— доходы;\n"
+    "— платежи;\n"
+    "— резервирование;\n"
+    "— ближайшие платежи;\n"
+    "— сколько можно тратить.\n\n"
+    "Раздел прогресса долгов вернётся позже в более точном виде."
 )
 
 

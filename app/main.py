@@ -23,7 +23,6 @@ async def main() -> None:
             BotCommand(command="add_obligation", description="Добавить платёж"),
             BotCommand(command="payments", description="Ближайшие платежи"),
             BotCommand(command="spend", description="Сколько можно тратить"),
-            BotCommand(command="progress", description="Прогресс долгов"),
             BotCommand(command="im_back", description="Я вернулся"),
             BotCommand(command="cancel", description="Отменить действие"),
         ]

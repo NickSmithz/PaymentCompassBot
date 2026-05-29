@@ -9,7 +9,6 @@ from app.texts import (
     BTN_IM_BACK,
     BTN_MENU,
     BTN_MY_INCOMES,
-    BTN_PROGRESS,
     BTN_SAFE_TO_SPEND,
     BTN_SETTINGS,
     BTN_UPCOMING_PAYMENTS,
@@ -22,7 +21,6 @@ def main_menu_keyboard(show_im_back: bool = False) -> ReplyKeyboardMarkup:
         [KeyboardButton(text=BTN_SAFE_TO_SPEND)],
         [KeyboardButton(text=BTN_ADD_INCOME), KeyboardButton(text=BTN_MY_INCOMES)],
         [KeyboardButton(text=BTN_ADD_OBLIGATION), KeyboardButton(text=BTN_UPCOMING_PAYMENTS)],
-        [KeyboardButton(text=BTN_PROGRESS)],
         [KeyboardButton(text=BTN_EDIT), KeyboardButton(text=BTN_SETTINGS)],
     ]
     if show_im_back:

@@ -32,7 +32,6 @@ from app.keyboards import (
     obligation_status_keyboard,
     obligations_inline_keyboard,
 )
-from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
 from app.services import allocation as allocation_service
 from app.services import income_recurrence
@@ -53,6 +52,23 @@ def _today(timezone: str):
 
 def _now(timezone: str):
     return datetime.now(ZoneInfo(timezone or get_settings().timezone))
+
+
+def _format_debug_reserve_instance_lines(instance) -> list[str]:
+    period_date = instance.period_date or instance.next_payment_date
+    required = instance.monthly_payment_amount
+    reserved = instance.reserved_amount
+    paid = instance.paid_amount
+    remaining = max(0, required - reserved - paid)
+    return [
+        f"{instance.title}",
+        f"period_date={period_date}",
+        f"required={format_money(required)}",
+        f"reserved_sum={format_money(reserved)}",
+        f"paid={format_money(paid)}",
+        f"remaining={format_money(remaining)}",
+        "",
+    ]
 
 
 
@@ -432,6 +448,13 @@ async def debug_reserves(message: Message) -> None:
         )
         transactions = await reserves_repo.list_by_user(session, user.id, limit=20)
         obligations = await obligation_service.list_obligations(session, user.id)
+        today = _today(user.timezone)
+        instances = await obligation_service.get_relevant_obligation_instances_for_user(
+            session,
+            user.id,
+            today,
+            horizon_days=get_settings().planning_horizon_days,
+        )
         incomes = await income_service.list_incomes(session, user.id)
 
         lines = ["🧪 Debug reserves", "", "Последние reserve_transactions:"]
@@ -446,6 +469,7 @@ async def debug_reserves(message: Message) -> None:
                     f"transaction_type={tx.transaction_type}",
                     f"source={tx.source}",
                     f"amount={format_money(tx.amount)}",
+                    f"period_date={tx.period_date}",
                     f"comment={tx.comment or '-'}",
                     "",
                 ]
@@ -454,31 +478,10 @@ async def debug_reserves(message: Message) -> None:
         lines.extend(["", "Агрегация по платежам:"])
         if not obligations:
             lines.append("Платежей нет.")
-        for obligation in obligations:
-            raw_reserved = await reserves_repo.sum_reserved_for_obligation_period(
-                session,
-                user.id,
-                obligation.id,
-                obligation.next_payment_date,
-            )
-            paid = await payments_repo.sum_paid_for_obligation_period(
-                session,
-                obligation.id,
-                None,
-                obligation.next_payment_date,
-            )
-            display_reserved = min(raw_reserved, max(0, obligation.monthly_payment_amount - paid))
-            remaining = max(0, obligation.monthly_payment_amount - display_reserved - paid)
-            lines.extend(
-                [
-                    f"{obligation.title}",
-                    f"required={format_money(obligation.monthly_payment_amount)}",
-                    f"reserved_sum={format_money(raw_reserved)}",
-                    f"paid={format_money(paid)}",
-                    f"remaining={format_money(remaining)}",
-                    "",
-                ]
-            )
+        elif not instances:
+            lines.append("Relevant payment instances не найдены в горизонте планирования.")
+        for instance in instances:
+            lines.extend(_format_debug_reserve_instance_lines(instance))
 
         lines.extend(["", "Агрегация по доходам:"])
         if not incomes:

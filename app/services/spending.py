@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories import incomes as incomes_repo
 from app.repositories import reserves as reserves_repo
 from app.repositories import users as users_repo
+from app.services import planning as planning_service
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 async def get_spending_summary(session: AsyncSession, user_id: int, today: date, now: datetime | None = None) -> dict:
     from app.services import income_recurrence
 
-    now = now or datetime.now()
+    now = now or planning_service.get_now()
     await income_recurrence.ensure_income_instances(session, user_id, today)
     user = await users_repo.get_by_id(session, user_id)
     last_focus_income_id = user.last_focus_income_id if user else None

@@ -9,6 +9,7 @@ from app.formatters import format_payment_added
 from app.keyboards import cancel_action_keyboard, main_menu_keyboard, obligations_inline_keyboard, today_keyboard
 from app.services import obligations as obligation_service
 from app.services import payments as payment_service
+from app.services import planning as planning_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import PaymentStates
 from app.utils import parse_date, parse_money
@@ -64,7 +65,7 @@ async def payment_amount(message: Message, state: FSMContext) -> None:
 @router.callback_query(PaymentStates.paid_at, F.data == "paid_today")
 async def payment_today(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
-    await _finish_payment(callback.message, callback.from_user, state, parse_date("сегодня", get_settings().timezone))
+    await _finish_payment(callback.message, callback.from_user, state, planning_service.get_today())
 
 
 @router.message(PaymentStates.paid_at)

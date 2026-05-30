@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     reminders_enabled: bool = True
     im_back_always_visible: bool = False
     dev_mode: bool = False
+    current_date_override: str | None = None
     planning_horizon_days: int = 90
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

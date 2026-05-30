@@ -1,6 +1,3 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
@@ -19,6 +16,7 @@ from app.keyboards import (
     main_menu_keyboard,
 )
 from app.services import dev_tools as dev_tools_service
+from app.services import planning as planning_service
 from app.services.users import get_or_create_user_from_telegram
 
 router = Router()
@@ -141,8 +139,11 @@ async def confirm_dev_make_all_incomes_recurring(callback: CallbackQuery) -> Non
             callback.from_user.username,
             callback.from_user.first_name,
         )
-        now = datetime.now(ZoneInfo(user.timezone or get_settings().timezone))
-        summary = await dev_tools_service.make_all_incomes_recurring_for_testing(session, user.id, now.date())
+        summary = await dev_tools_service.make_all_incomes_recurring_for_testing(
+            session,
+            user.id,
+            planning_service.get_today(),
+        )
     await callback.message.answer(format_dev_make_incomes_recurring_result(summary), reply_markup=main_menu_keyboard())
     await callback.answer("Доходы нормализованы")
 

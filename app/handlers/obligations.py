@@ -12,6 +12,7 @@ from app.database import SessionLocal
 from app.formatters import format_obligation_added, format_obligations_list
 from app.keyboards import cancel_action_keyboard, main_menu_keyboard, obligation_type_keyboard, priority_keyboard, recurring_keyboard
 from app.services import obligations as obligation_service
+from app.services import planning as planning_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import AddObligationStates
 from app.utils import parse_date, parse_money
@@ -119,6 +120,6 @@ async def add_obligation_finish(callback: CallbackQuery, state: FSMContext) -> N
 async def upcoming_payments(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)
-        items = await obligation_service.get_upcoming_obligations_summary(session, user.id, parse_date("сегодня", user.timezone))
+        items = await obligation_service.get_upcoming_obligations_summary(session, user.id, planning_service.get_today())
     await message.answer(format_obligations_list(items), reply_markup=main_menu_keyboard())
 

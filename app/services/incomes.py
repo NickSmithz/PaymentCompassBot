@@ -1,15 +1,14 @@
 from datetime import date, datetime
-from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.repositories import incomes as incomes_repo
 from app.repositories import users as users_repo
+from app.services.planning import get_now, get_today
 
 
 def _now() -> datetime:
-    return datetime.now(ZoneInfo(get_settings().timezone))
+    return get_now()
 
 
 async def create_income(session: AsyncSession, user_id: int, data: dict, now: datetime | None = None):
@@ -66,7 +65,7 @@ async def list_incomes_for_status_change(session: AsyncSession, user_id: int):
 async def get_user_incomes_summary(session: AsyncSession, user_id: int, today: date | None = None):
     from app.services import income_recurrence
 
-    today = today or date.today()
+    today = today or get_today()
     await income_recurrence.ensure_income_instances(session, user_id, today)
     incomes = await incomes_repo.list_by_user(session, user_id)
 
@@ -106,7 +105,7 @@ async def update_income(session: AsyncSession, user_id: int, income_id: int, dat
         await allocation_service.release_auto_reserves_for_income(session, user_id, income.id)
     income = await incomes_repo.update(session, income, data)
     if should_reprocess:
-        await allocation_service.process_received_income(session, user_id, income.id, date.today())
+        await allocation_service.process_received_income(session, user_id, income.id, get_today())
         await users_repo.update_last_focus_income_id(session, user_id, income.id)
     return income
 

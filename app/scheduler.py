@@ -1,12 +1,10 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import get_settings
 from app.database import SessionLocal
 from app.services.notifications import check_payment_reminders
+from app.services.planning import get_today
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
@@ -18,7 +16,6 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
 
 
 async def _run_reminders(bot: Bot) -> None:
-    settings = get_settings()
-    today = datetime.now(ZoneInfo(settings.timezone)).date()
+    today = get_today()
     async with SessionLocal() as session:
         await check_payment_reminders(session, bot, today)

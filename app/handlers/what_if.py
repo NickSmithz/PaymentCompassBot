@@ -1,5 +1,3 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from app.texts import BTN_WHAT_IF_BUY
 
 from aiogram import F, Router
@@ -7,10 +5,10 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from app.config import get_settings
 from app.database import SessionLocal
 from app.formatters import format_purchase_impact
 from app.keyboards import cancel_action_keyboard, main_menu_keyboard, purchase_impact_keyboard
+from app.services import planning as planning_service
 from app.services import what_if as what_if_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import WhatIfPurchaseStates
@@ -63,7 +61,7 @@ async def what_if_amount(message: Message, state: FSMContext) -> None:
 
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)
-        today = datetime.now(ZoneInfo(user.timezone or get_settings().timezone)).date()
+        today = planning_service.get_today()
         summary = await what_if_service.simulate_purchase(session, user.id, amount, today)
     await state.clear()
     keyboard = purchase_impact_keyboard(summary.get("recommendation_type", "better_not")) if summary.get("can_calculate") else main_menu_keyboard()

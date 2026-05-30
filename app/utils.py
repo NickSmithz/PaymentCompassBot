@@ -2,7 +2,6 @@ import calendar
 import math
 import re
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 
 def parse_money(text: str) -> int:
@@ -24,7 +23,9 @@ def format_money(amount: int) -> str:
 
 def parse_date(text: str, timezone: str) -> date:
     raw = text.strip().lower()
-    today = datetime.now(ZoneInfo(timezone)).date()
+    from app.services.planning import get_today
+
+    today = get_today()
     if raw == "сегодня":
         return today
     if raw == "завтра":

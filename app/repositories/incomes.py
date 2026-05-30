@@ -4,6 +4,7 @@ from sqlalchemy import delete as sa_delete, func, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Income
+from app.services.planning import get_today
 
 
 async def create(session: AsyncSession, user_id: int, data: dict, commit: bool = True) -> Income:
@@ -163,7 +164,7 @@ async def sum_expected_between(session: AsyncSession, user_id: int, start: date,
 
 
 async def get_last_received(session: AsyncSession, user_id: int, days: int = 60, today: date | None = None) -> Income | None:
-    current_date = today or date.today()
+    current_date = today or get_today()
     since = current_date - timedelta(days=days)
     return await session.scalar(
         select(Income)

@@ -1,16 +1,13 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from app.config import get_settings
 from app.database import SessionLocal
 from app.formatters import format_help
 from app.keyboards import main_menu_keyboard
 from app.services import activity as activity_service
 from app.services import income_recurrence
+from app.services import planning as planning_service
 from app.services.users import get_or_create_user_from_telegram
 
 router = Router()
@@ -20,7 +17,7 @@ router = Router()
 async def start_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)
-        today = datetime.now(ZoneInfo(user.timezone or get_settings().timezone)).date()
+        today = planning_service.get_today()
         await income_recurrence.ensure_income_instances(session, user.id, today)
         show_im_back, show_return_prompt = await _get_return_menu_state(session, user)
     text = (
@@ -41,7 +38,7 @@ async def start_handler(message: Message) -> None:
 async def menu_handler(message: Message) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user_from_telegram(session, message.from_user.id, message.from_user.username, message.from_user.first_name)
-        today = datetime.now(ZoneInfo(user.timezone or get_settings().timezone)).date()
+        today = planning_service.get_today()
         await income_recurrence.ensure_income_instances(session, user.id, today)
         show_im_back, show_return_prompt = await _get_return_menu_state(session, user)
     text = _return_prompt_text() if show_return_prompt else "Главное меню"
@@ -54,7 +51,7 @@ async def help_handler(message: Message) -> None:
 
 
 async def _get_return_menu_state(session, user) -> tuple[bool, bool]:
-    now = datetime.now(ZoneInfo(user.timezone or get_settings().timezone))
+    now = planning_service.get_now()
     show_im_back_by_absence = await activity_service.should_show_im_back(session, user.id, now)
     show_im_back = await activity_service.should_show_im_back_button(session, user.id, now)
     show_return_prompt = await activity_service.should_show_return_prompt(session, user.id, now)

@@ -1,6 +1,4 @@
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from app.texts import BTN_CANCEL_ACTION, BTN_EDIT, BTN_MENU, UNKNOWN_COMMAND_TEXT
 
 from aiogram import F, Router
@@ -48,11 +46,13 @@ logger = logging.getLogger(__name__)
 
 
 def _today(timezone: str):
-    return datetime.now(ZoneInfo(timezone or get_settings().timezone)).date()
+    del timezone
+    return planning_service.get_today()
 
 
 def _now(timezone: str):
-    return datetime.now(ZoneInfo(timezone or get_settings().timezone))
+    del timezone
+    return planning_service.get_now()
 
 
 def _format_debug_reserve_instance_lines(instance) -> list[str]:
@@ -463,6 +463,7 @@ async def debug_reserves(message: Message) -> None:
 
         lines = [
             "🧪 Debug reserves",
+            f"today={today}",
             f"planning_horizon_days={horizon_days}",
             f"horizon_end={horizon_end}",
             "",
@@ -537,6 +538,7 @@ async def debug_obligations(message: Message) -> None:
 
     lines = [
         "🧪 Debug obligations",
+        f"today={today}",
         f"planning_horizon_days={horizon_days}",
         f"horizon_end={horizon_end}",
         "",

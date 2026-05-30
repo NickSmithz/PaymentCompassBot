@@ -1,6 +1,3 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -17,6 +14,7 @@ from app.keyboards import (
     today_keyboard,
 )
 from app.services import incomes as income_service
+from app.services import planning as planning_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import AddIncomeStates
 from app.texts import BTN_ADD_INCOME, BTN_MY_INCOMES
@@ -35,7 +33,7 @@ async def incomes_list_handler(message: Message) -> None:
             message.from_user.username,
             message.from_user.first_name,
         )
-        today = datetime.now(ZoneInfo(user.timezone or get_settings().timezone)).date()
+        today = planning_service.get_today()
         incomes = await income_service.get_user_incomes_summary(session, user.id, today)
     await message.answer(format_incomes_list(incomes), reply_markup=main_menu_keyboard())
 
@@ -77,7 +75,7 @@ async def add_income_amount(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(AddIncomeStates.income_date, F.data == "income_today")
 async def add_income_today(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.update_data(income_date=parse_date("сегодня", get_settings().timezone))
+    await state.update_data(income_date=planning_service.get_today())
     await _ask_income_recurrence(callback.message, state)
     await callback.answer()
 
@@ -125,8 +123,8 @@ async def add_income_finish(callback: CallbackQuery, state: FSMContext) -> None:
             callback.from_user.username,
             callback.from_user.first_name,
         )
-        now = datetime.now(ZoneInfo(user.timezone or get_settings().timezone))
-        result = await income_service.create_income_from_user_input(session, user.id, data, now.date(), now)
+        now = planning_service.get_now()
+        result = await income_service.create_income_from_user_input(session, user.id, data, planning_service.get_today(), now)
         income = result["income"]
         text = format_allocation_result(result["allocation"]) if result["allocation"] else format_income_added(income)
     await state.clear()

@@ -1,17 +1,14 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from aiogram import F, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from app.config import get_settings
 from app.database import SessionLocal
 from app.formatters import format_obligations_list, format_return_preview, format_return_result
 from app.keyboards import cancel_action_keyboard, main_menu_keyboard, return_preview_keyboard, return_result_keyboard
 from app.services import activity as activity_service
 from app.services import obligations as obligations_service
+from app.services import planning as planning_service
 from app.services import return_flow as return_flow_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import AddIncomeStates
@@ -31,8 +28,8 @@ async def im_back_start(message: Message, state: FSMContext) -> None:
             message.from_user.username,
             message.from_user.first_name,
         )
-        now = datetime.now(ZoneInfo(user.timezone or get_settings().timezone))
-        today = now.date()
+        now = planning_service.get_now()
+        today = planning_service.get_today()
         summary = await return_flow_service.get_return_preview(session, user.id, today)
         await activity_service.update_user_activity(session, user.id, now)
 
@@ -50,8 +47,8 @@ async def confirm_im_back(callback: CallbackQuery) -> None:
             callback.from_user.username,
             callback.from_user.first_name,
         )
-        now = datetime.now(ZoneInfo(user.timezone or get_settings().timezone))
-        today = now.date()
+        now = planning_service.get_now()
+        today = planning_service.get_today()
         summary = await return_flow_service.apply_return_flow(session, user.id, today)
         await activity_service.update_user_activity(session, user.id, now)
 
@@ -82,7 +79,7 @@ async def im_back_payments(callback: CallbackQuery) -> None:
             callback.from_user.username,
             callback.from_user.first_name,
         )
-        today = datetime.now(ZoneInfo(user.timezone or get_settings().timezone)).date()
+        today = planning_service.get_today()
         summary = await obligations_service.get_upcoming_obligations_summary(session, user.id, today)
 
     await callback.message.answer(format_obligations_list(summary), reply_markup=main_menu_keyboard())

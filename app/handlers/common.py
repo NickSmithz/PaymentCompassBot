@@ -37,6 +37,7 @@ from app.services import allocation as allocation_service
 from app.services import income_recurrence
 from app.services import incomes as income_service
 from app.services import obligations as obligation_service
+from app.services import planning as planning_service
 from app.services.users import get_or_create_user_from_telegram
 from app.states import EditIncomeStates, EditObligationStates
 from app.telegram_messages import send_long_message
@@ -449,15 +450,24 @@ async def debug_reserves(message: Message) -> None:
         transactions = await reserves_repo.list_by_user(session, user.id, limit=20)
         obligations = await obligation_service.list_obligations(session, user.id)
         today = _today(user.timezone)
+        horizon_days = planning_service.get_planning_horizon_days(user.id)
+        horizon_end = planning_service.get_planning_horizon_end(user.id, today)
         instances = await obligation_service.get_relevant_obligation_instances_for_user(
             session,
             user.id,
             today,
-            horizon_days=get_settings().planning_horizon_days,
+            horizon_days=horizon_days,
+            horizon_end=horizon_end,
         )
         incomes = await income_service.list_incomes(session, user.id)
 
-        lines = ["🧪 Debug reserves", "", "Последние reserve_transactions:"]
+        lines = [
+            "🧪 Debug reserves",
+            f"planning_horizon_days={horizon_days}",
+            f"horizon_end={horizon_end}",
+            "",
+            "Последние reserve_transactions:",
+        ]
         if not transactions:
             lines.append("Пока нет reserve_transactions.")
         for index, tx in enumerate(transactions, 1):
@@ -515,14 +525,23 @@ async def debug_obligations(message: Message) -> None:
         )
         today = _today(user.timezone)
         obligations = await obligation_service.list_obligations(session, user.id)
+        horizon_days = planning_service.get_planning_horizon_days(user.id)
+        horizon_end = planning_service.get_planning_horizon_end(user.id, today)
         instances = await obligation_service.get_relevant_obligation_instances_for_user(
             session,
             user.id,
             today,
-            horizon_days=get_settings().planning_horizon_days,
+            horizon_days=horizon_days,
+            horizon_end=horizon_end,
         )
 
-    lines = ["🧪 Debug obligations", "", "Obligations:"]
+    lines = [
+        "🧪 Debug obligations",
+        f"planning_horizon_days={horizon_days}",
+        f"horizon_end={horizon_end}",
+        "",
+        "Obligations:",
+    ]
     if not obligations:
         lines.append("Платежей нет.")
     for obligation in obligations:

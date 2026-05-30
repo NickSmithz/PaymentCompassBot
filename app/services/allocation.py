@@ -1,10 +1,9 @@
 import logging
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.calculations import (
     AllocationItem,
     AllocationResult,
@@ -22,6 +21,7 @@ from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
 from app.services import living_minimum as living_minimum_service
 from app.services import obligations as obligation_service
+from app.services import planning as planning_service
 from app.services import savings as savings_service
 
 
@@ -90,13 +90,13 @@ async def _calculate_received_income(
     *,
     exclude_income_reserves: bool,
 ) -> AllocationResult:
-    settings = get_settings()
-    horizon_end = max(today, income.income_date) + timedelta(days=settings.planning_horizon_days)
+    horizon_days = planning_service.get_planning_horizon_days(user_id)
+    horizon_end = planning_service.get_planning_horizon_end(user_id, today)
     obligation_instances = await obligation_service.get_relevant_obligation_instances_for_user(
         session,
         user_id,
         today,
-        horizon_days=settings.planning_horizon_days,
+        horizon_days=horizon_days,
         horizon_end=horizon_end,
     )
     future_incomes = await incomes_repo.list_future_by_user(session, user_id, income.income_date)
@@ -136,6 +136,7 @@ async def _calculate_received_income(
         obligation_dtos,
         [_income_dto(item) for item in future_incomes],
         today,
+        horizon_end=horizon_end,
     )
 
 

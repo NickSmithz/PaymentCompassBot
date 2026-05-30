@@ -459,6 +459,37 @@ def test_future_cashflow_gap_can_create_new_allocation_item():
     assert result.safe_to_spend == 359 * 100
 
 
+def test_allocation_ignores_payments_after_horizon_end():
+    current_day = date(2026, 5, 29)
+    result = calculate_income_allocation(
+        income(1, "Salary", 200000, current_day),
+        [
+            obligation(1, "Repair Loan", 30000, date(2026, 8, 25)),
+            obligation(2, "September Card", 3000, date(2026, 9, 5)),
+        ],
+        [],
+        current_day,
+        horizon_end=date(2026, 8, 27),
+    )
+
+    assert [item.obligation_id for item in result.items] == [1]
+    assert result.items[0].due_date == date(2026, 8, 25)
+
+
+def test_cashflow_gap_ignores_payments_after_horizon_end():
+    gaps = calculate_future_cashflow_gaps(
+        current_income_id=1,
+        current_income_amount=120000 * 100,
+        current_income_date=date(2026, 5, 29),
+        payment_instances=[obligation(1, "September Car Loan", 25000, date(2026, 9, 10))],
+        future_incomes=[],
+        current_reserves=[],
+        horizon_end=date(2026, 8, 27),
+    )
+
+    assert gaps == []
+
+
 def test_future_cashflow_gap_includes_next_recurring_instance_closed_by_current_income():
     current_day = date(2026, 6, 20)
     result = calculate_income_allocation(
@@ -474,6 +505,7 @@ def test_future_cashflow_gap_includes_next_recurring_instance_closed_by_current_
             income(43, "Next Salary", 175000, date(2026, 7, 15), "expected"),
         ],
         current_day,
+        horizon_end=date(2026, 7, 10),
     )
 
     credit_card = next(

@@ -300,12 +300,6 @@ def _expand_cashflow_payment_instances(
     return expanded
 
 
-def _cashflow_horizon_end(payment_instances: list[ObligationCalculationDTO]) -> date:
-    dates = [instance.next_payment_date for instance in payment_instances]
-    dates.extend(add_month(instance.next_payment_date) for instance in payment_instances if instance.is_recurring)
-    return max(dates)
-
-
 def calculate_future_cashflow_gaps(
     current_income_id: int,
     current_income_amount: int,
@@ -383,11 +377,11 @@ def _apply_future_cashflow_gap_check(
     items: list[AllocationItem],
     future_incomes: list[IncomeCalculationDTO],
     warnings: list[str],
+    horizon_end: date,
 ) -> list[AllocationItem]:
     if not obligations:
         return items
 
-    horizon_end = _cashflow_horizon_end(obligations)
     adjusted_items = list(items)
     item_indexes = {_item_key(item): index for index, item in enumerate(adjusted_items)}
     allocated_before_gap = sum(item.recommended_reserve for item in adjusted_items)
@@ -565,12 +559,18 @@ def calculate_income_allocation(
     obligations: list[ObligationCalculationDTO],
     future_incomes: list[IncomeCalculationDTO],
     today: date,
+    horizon_end: date | None = None,
 ) -> AllocationResult:
+    if horizon_end is None and obligations:
+        horizon_end = max(obligation.next_payment_date for obligation in obligations)
+
     current_income_remaining = max(0, current_income.amount)
     items: list[AllocationItem] = []
     warnings: list[str] = []
 
     for obligation in sort_obligations_by_priority(obligations, today):
+        if horizon_end is not None and obligation.next_payment_date > horizon_end:
+            continue
         remaining_amount = calculate_remaining_amount(obligation)
         if remaining_amount <= 0:
             continue
@@ -629,6 +629,7 @@ def calculate_income_allocation(
         items=items,
         future_incomes=future_incomes,
         warnings=warnings,
+        horizon_end=horizon_end or today,
     )
 
     result = AllocationResult(

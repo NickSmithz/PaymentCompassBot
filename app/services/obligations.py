@@ -3,12 +3,12 @@ from datetime import date, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.calculations import ObligationCalculationDTO, calculate_remaining_amount, calculate_reserved_adjustment
 from app.repositories import incomes as incomes_repo
 from app.repositories import obligations as obligations_repo
 from app.repositories import payments as payments_repo
 from app.repositories import reserves as reserves_repo
+from app.services import planning as planning_service
 from app.utils import add_month
 
 
@@ -77,8 +77,7 @@ async def get_relevant_obligation_instances_for_user(
     horizon_days: int | None = None,
     horizon_end: date | None = None,
 ) -> list[ObligationCalculationDTO]:
-    settings = get_settings()
-    effective_horizon_days = horizon_days if horizon_days is not None else settings.planning_horizon_days
+    effective_horizon_days = horizon_days if horizon_days is not None else planning_service.get_planning_horizon_days(user_id)
     effective_horizon_end = horizon_end or today + timedelta(days=effective_horizon_days)
     obligations = await obligations_repo.list_active_by_user(session, user_id)
     return await generate_relevant_obligation_instances(
@@ -219,13 +218,13 @@ async def get_upcoming_obligations_summary(session: AsyncSession, user_id: int, 
     obligations_count = await obligations_repo.count_by_user(session, user_id)
     active_obligations_count = await obligations_repo.count_active_by_user(session, user_id)
     obligations = await obligations_repo.list_active_by_user(session, user_id)
-    settings = get_settings()
-    horizon_end = today + timedelta(days=settings.planning_horizon_days)
+    horizon_days = planning_service.get_planning_horizon_days(user_id)
+    horizon_end = planning_service.get_planning_horizon_end(user_id, today)
     instances = await get_relevant_obligation_instances_for_user(
         session,
         user_id,
         today,
-        horizon_days=settings.planning_horizon_days,
+        horizon_days=horizon_days,
         horizon_end=horizon_end,
     )
     items = []
@@ -278,6 +277,7 @@ async def get_upcoming_obligations_summary(session: AsyncSession, user_id: int, 
         "items": items,
         "obligations_count": obligations_count,
         "active_obligations_count": active_obligations_count,
+        "planning_horizon_days": horizon_days,
         "horizon_end": horizon_end,
         "total_required": sum(item["amount"] for item in items),
         "total_reserved": sum(item["reserved_amount"] for item in items),

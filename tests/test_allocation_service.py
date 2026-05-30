@@ -465,6 +465,97 @@ def test_upcoming_summary_reports_existing_obligations_when_horizon_has_no_insta
     run(scenario())
 
 
+def test_relevant_instances_do_not_return_instance_after_horizon_end():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 29)
+            async with Session() as session:
+                user = await create_user(session)
+                await create_obligation(session, user.id, 3000 * 100, date(2026, 9, 5), "September Card")
+                await session.commit()
+
+                instances = await obligation_service.get_relevant_obligation_instances_for_user(
+                    session,
+                    user.id,
+                    today,
+                    horizon_days=90,
+                    horizon_end=date(2026, 8, 27),
+                )
+
+                assert instances == []
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_closed_august_instance_does_not_pull_september_into_user_horizon():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 29)
+            async with Session() as session:
+                user = await create_user(session)
+                obligation = await create_obligation(session, user.id, 30000 * 100, date(2026, 8, 25), "Repair Loan")
+                await reserves_repo.create(
+                    session,
+                    user_id=user.id,
+                    obligation_id=obligation.id,
+                    income_id=None,
+                    amount=30000 * 100,
+                    transaction_type="reserve",
+                    source="auto_plan",
+                    period_date=date(2026, 8, 25),
+                )
+                await session.commit()
+
+                instances = await obligation_service.get_relevant_obligation_instances_for_user(
+                    session,
+                    user.id,
+                    today,
+                    horizon_days=90,
+                    horizon_end=date(2026, 8, 27),
+                )
+
+                assert instances == []
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
+def test_process_received_income_and_upcoming_share_planning_horizon():
+    async def scenario():
+        engine, Session = await make_session_factory()
+        try:
+            today = date(2026, 5, 29)
+            async with Session() as session:
+                user = await create_user(session)
+                september = await create_obligation(session, user.id, 3000 * 100, date(2026, 9, 5), "September Card")
+                income = await create_income(session, user.id, 200000 * 100, today, "Salary")
+                await session.commit()
+
+                allocation = await allocation_service.process_received_income(session, user.id, income.id, today)
+                upcoming = await obligation_service.get_upcoming_obligations_summary(session, user.id, today)
+                september_reserved = await reserves_repo.sum_reserved_for_obligation_period(
+                    session,
+                    user.id,
+                    september.id,
+                    date(2026, 9, 5),
+                )
+
+                assert allocation.items == []
+                assert allocation.total_to_reserve == 0
+                assert upcoming["items"] == []
+                assert upcoming["horizon_end"] == date(2026, 8, 27)
+                assert september_reserved == 0
+        finally:
+            await engine.dispose()
+
+    run(scenario())
+
+
 def test_recurring_obligation_stays_active_after_full_payment():
     async def scenario():
         engine, Session = await make_session_factory()

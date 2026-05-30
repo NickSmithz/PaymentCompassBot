@@ -42,6 +42,7 @@ python, py, pytest не находятся
 При этом были выполнены доступные проверки:
 
 - `git diff --check` проходит;
+- прямые вызовы `date.today()` / `datetime.now(...).date()` в бизнес-сценариях заменены на `app.services.planning.get_today()` / `get_now()`;
 - поиск mojibake-паттернов по коду и документации ничего не нашёл;
 - строк с запрещённой таблицей плановых распределений не найдено.
 
@@ -90,6 +91,31 @@ Telegram handlers
 - просмотровые сценарии не должны менять БД.
 
 ## 6. Последние важные изменения
+
+### `app/services/planning.py`
+
+Добавлен единый сервис даты и горизонта планирования:
+
+- `get_today()` возвращает текущую локальную дату бота;
+- `get_now()` возвращает текущий локальный `datetime`;
+- `get_planning_horizon_days(...)` берёт горизонт из настроек;
+- `get_planning_horizon_end(...)` считает `base_date + planning_horizon_days`.
+
+Добавлена dev-only настройка:
+
+```env
+CURRENT_DATE_OVERRIDE=YYYY-MM-DD
+```
+
+Она работает только при `DEV_MODE=true`. При `DEV_MODE=false` override игнорируется, даже если переменная заполнена.
+
+При `PLANNING_HORIZON_DAYS=90` контрольные значения:
+
+- `CURRENT_DATE_OVERRIDE=2026-05-30` даёт `horizon_end=2026-08-28`;
+- `CURRENT_DATE_OVERRIDE=2026-06-10` даёт `horizon_end=2026-09-08`;
+- `CURRENT_DATE_OVERRIDE=2026-06-20` даёт `horizon_end=2026-09-18`.
+
+На этот сервис переведены пользовательские расчёты и debug-сценарии: «Ближайшие платежи», `/spend`, обработка дохода, cashflow gap check, `/debug_reserves`, `/debug_obligations`, income/return/dev handlers и scheduler.
 
 ### `app/models.py`
 
@@ -182,13 +208,18 @@ Alembic не используется.
 
 ### `app/handlers/common.py`
 
-Добавлена скрытая команда `/debug_reserves`.
+Добавлены/обновлены скрытые debug-команды `/debug_reserves`, `/debug_obligations`, `/debug_incomes`.
 
-Она не выводится в `/help` и показывает:
+Они не выводятся в `/help`. `/debug_reserves` показывает:
 
+- `today`;
+- `planning_horizon_days`;
+- `horizon_end`;
 - последние 20 `reserve_transactions` пользователя;
-- агрегаты по платежам: required, reserved_sum, paid, remaining;
+- агрегаты по relevant payment instances: `period_date`, required, reserved_sum, paid, remaining;
 - агрегаты по доходам: auto_plan_reserved_sum.
+
+`/debug_obligations` также показывает `today`, `planning_horizon_days`, `horizon_end`, исходные obligations и relevant instances в том же горизонте, который используется пользовательскими расчётами.
 
 ### `app/formatters.py`
 
@@ -226,6 +257,15 @@ Alembic не используется.
 - auto-reserve без `obligation_id` не считается валидным;
 - `release_auto_reserves_for_income` обнуляет auto-plan резерв дохода.
 
+### `tests/test_planning.py`
+
+Добавлены тесты dev-only override даты:
+
+- `2026-05-30` -> `horizon_end=2026-08-28`;
+- `2026-06-10` -> `horizon_end=2026-09-08`;
+- `2026-06-20` -> `horizon_end=2026-09-18`;
+- `CURRENT_DATE_OVERRIDE` игнорируется при `DEV_MODE=false`.
+
 ## 7. Уже исправленные проблемы
 
 Исправлено или доработано:
@@ -257,7 +297,7 @@ python -m app.main
 1. Добавить received-доход.
 2. Убедиться, что бот показывает «Куда отложить».
 3. Выполнить `/debug_reserves`.
-4. Убедиться, что появились auto-plan reserve-транзакции.
+4. Убедиться, что в начале вывода есть `today`, `planning_horizon_days`, `horizon_end`, а ниже появились auto-plan reserve-транзакции.
 5. Открыть «Ближайшие платежи».
 6. Убедиться, что «Уже отложено» совпадает с резервами.
 7. Добавить второй received-доход.
@@ -268,6 +308,9 @@ python -m app.main
 Дополнительно желательно:
 
 - просмотреть `/debug_reserves` после отмены/удаления received-дохода;
+- выполнить `/debug_obligations` и убедиться, что relevant instances используют тот же `horizon_end`, что и `/debug_reserves`;
+- проверить dev-only override: при `DEV_MODE=true` и `CURRENT_DATE_OVERRIDE=2026-06-10` debug должен показывать `today=2026-06-10` и `horizon_end=2026-09-08`;
+- проверить, что при `DEV_MODE=false` `CURRENT_DATE_OVERRIDE` не влияет на текущую дату;
 - убедиться, что release-записи создаются и общий резерв уменьшается;
 - проверить, что `source` корректно появился в старой SQLite-базе.
 
@@ -338,4 +381,3 @@ python -m app.main
 
 - рекомендовано отложить ботом = зарезервировано в плане;
 - если пользователь фактически отложил другую сумму, он правит «Уже отложено» вручную.
-

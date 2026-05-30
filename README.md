@@ -76,6 +76,28 @@ DEV_MODE=true
 
 Эти команды не отображаются в `/help` и не предназначены для продакшена.
 
+### DEV-переопределение текущей даты
+
+Для воспроизводимых сценариев планирования в режиме разработки можно зафиксировать текущую дату бота:
+
+```env
+DEV_MODE=true
+CURRENT_DATE_OVERRIDE=2026-06-10
+PLANNING_HORIZON_DAYS=90
+```
+
+Override работает только при `DEV_MODE=true`. В production-режиме (`DEV_MODE=false`) значение `CURRENT_DATE_OVERRIDE` игнорируется.
+
+Единая текущая дата берётся через `app.services.planning.get_today()`. Её используют расчёт дохода, «Ближайшие платежи», «Сколько можно тратить», cashflow gap check, debug-команды и горизонт планирования.
+
+При `PLANNING_HORIZON_DAYS=90` ожидаемые границы горизонта:
+
+- `CURRENT_DATE_OVERRIDE=2026-05-30` → `horizon_end=2026-08-28`;
+- `CURRENT_DATE_OVERRIDE=2026-06-10` → `horizon_end=2026-09-08`;
+- `CURRENT_DATE_OVERRIDE=2026-06-20` → `horizon_end=2026-09-18`.
+
+`/debug_reserves` и `/debug_obligations` показывают `today`, `planning_horizon_days` и `horizon_end`.
+
 ## Архитектура
 
 Все файлы проекта должны быть сохранены в UTF-8.
@@ -155,7 +177,7 @@ docker compose up --build
 pytest
 ```
 
-Тесты покрывают чистую бизнес-логику в `app/calculations.py`.
+Тесты покрывают чистую бизнес-логику в `app/calculations.py`, сервисные сценарии и настройки planning horizon. Для проверки override даты добавлены тесты в `tests/test_planning.py`.
 
 ## Ограничения MVP
 
